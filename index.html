@@ -96,14 +96,12 @@
             color: #333;
             margin-bottom: 2px;
         }
-        /* Renamed from .omokoro-tab-name */
         .tab-name-below-icon {
              display: none; /* Hidden by default */
              font-size: 0.8em;
              color: #666;
              margin-bottom: 2px;
         }
-        /* Renamed from .speaker-name-omokoro */
         .speaker-name-below-icon {
             display: none; /* Hidden by default */
             font-size: 0.85em;
@@ -152,15 +150,14 @@
         .message-item[data-display-mode="narration"] .message-container { display: none; }
         .message-item[data-display-mode="bubble"] .narration-container { display: none; }
 
-        /* --- 名前をアイコン下に表示モード 有効時のスタイル --- */ /* Renamed from Omokoro Mode */
-        /* Renamed from .omokoro-active */
+        /* --- 名前をアイコン下に表示モード 有効時のスタイル --- */ 
         .name-below-icon-active .icon-container {
             margin-bottom: 1.8em; /* Increased margin to prevent overlap */
             overflow: visible;
         }
         .name-below-icon-active .speaker-name-default { display: none; }
-        .name-below-icon-active .tab-name-below-icon { display: block; } /* Renamed from .omokoro-tab-name */
-        .name-below-icon-active .speaker-name-below-icon { display: block; } /* Renamed from .speaker-name-omokoro */
+        .name-below-icon-active .tab-name-below-icon { display: block; } 
+        .name-below-icon-active .speaker-name-below-icon { display: block; } 
         .name-below-icon-active .bubble-left { margin-left: 0; }
         .name-below-icon-active .bubble-left::before { left: -8px; }
         .name-below-icon-active .action-button-container { margin-left: 0; }
@@ -415,7 +412,7 @@
             backgroundColor: '#f3f4f6',
             iconSize: 64, // Default icon size updated
             bubbleMaxWidth: 80,
-            nameBelowIconMode: false, // Renamed from omokoroMode
+            nameBelowIconMode: false, 
             fontFamily: 'font-noto-sans',
             logDisplayHeight: 384 // Added log display height
          };
@@ -453,7 +450,7 @@
         const iconSizeValueSpan = document.getElementById('icon-size-value');
         const bubbleWidthSlider = document.getElementById('bubble-width-slider');
         const bubbleWidthValueSpan = document.getElementById('bubble-width-value');
-        const nameBelowIconToggle = document.getElementById('name-below-icon-toggle'); // Renamed from omokoroToggle
+        const nameBelowIconToggle = document.getElementById('name-below-icon-toggle'); 
         const fontFamilySelect = document.getElementById('font-family-select'); // Font select dropdown
         const applyCustomizationButton = document.getElementById('apply-customization');
         const resetCustomizationButton = document.getElementById('reset-customization');
@@ -735,7 +732,7 @@
              logDisplayDiv.style.setProperty('--bubble-bg-color', customizationSettings.normalBubbleColor);
              logDisplayDiv.style.setProperty('--bubble-arrow-color', customizationSettings.normalBubbleColor);
              logDisplayDiv.style.setProperty('--icon-size', `${customizationSettings.iconSize}px`); // Apply icon size
-             // Name Below Icon mode class (Renamed from omokoro-active)
+             // Name Below Icon mode class 
              logDisplayDiv.classList.toggle('name-below-icon-active', customizationSettings.nameBelowIconMode);
 
              // Filter data
@@ -847,7 +844,6 @@
             iconImg.onerror = (e) => { if (e.target.src !== placeholderSrc) e.target.src = placeholderSrc; };
             iconContainer.appendChild(iconImg);
 
-            // Renamed from omokoroNameSpan / speaker-name-omokoro
             const nameBelowIconSpan = document.createElement('span');
             nameBelowIconSpan.className = 'speaker-name-below-icon';
             nameBelowIconSpan.textContent = escapeHtml(setting.displayName);
@@ -860,7 +856,6 @@
             speakerNameSpan.className = 'speaker-name-default';
             speakerNameSpan.innerHTML = `${escapeHtml(setting.displayName)} <span class="text-xs font-normal text-gray-500">[${escapeHtml(logItem.tab || 'main')}]</span>`;
 
-            // Renamed from omokoroTabSpan / omokoro-tab-name
             const tabBelowIconSpan = document.createElement('span');
             tabBelowIconSpan.className = 'tab-name-below-icon';
             tabBelowIconSpan.textContent = `[${escapeHtml(logItem.tab || 'main')}]`;
@@ -869,7 +864,7 @@
             bubbleDiv.className = 'bubble bubble-left bubble-normal';
             bubbleDiv.innerHTML = logItem.message;
             contentContainer.appendChild(speakerNameSpan);
-            contentContainer.appendChild(tabBelowIconSpan); // Appended renamed element
+            contentContainer.appendChild(tabBelowIconSpan); 
             contentContainer.appendChild(bubbleDiv);
             const actionButtonContainer = document.createElement('div');
             actionButtonContainer.className = 'action-button-container';
@@ -1355,7 +1350,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Noto+Sans+JP:wght@400;700&family=Noto+Serif+JP:wght@400;700&family=M+PLUS+Rounded+1c:wght@400;700&display=swap" rel="stylesheet">
 </head>
-<body class="${nameBelowIconBodyClass} ${fontBodyClass}"> {/* Renamed body class */}
+<body class="${nameBelowIconBodyClass} ${fontBodyClass}"> 
     <div class="log-export-container">
         <h1>${safeHtmlTitle}</h1>
         ${filterControlsHtml}
