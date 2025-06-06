@@ -13,9 +13,9 @@
       fontFamily: 'font-noto-sans', logDisplayHeight: 384,
       skipDeleteConfirm: false,
       baseTextColor: '#333333',
-      textEdgeColor: '#ffffff', // New: For text outlines
-      backgroundImage: null, // New: DataURL of background image
-      backgroundImageFileName: null // New: Original filename of background image
+      textEdgeColor: '#ffffff', // For text outlines
+      backgroundImage: null, // DataURL of background image
+      backgroundImageFileName: null // Original filename of background image
    };
    let currentTabFilter = 'all';
    let currentSpeakerFilter = 'all';
@@ -33,14 +33,18 @@
    let expressionAddContext = { speaker: null, inputElement: null };
    let isHeadingsNavOpen = false;
    let isRenderingLog = false;
+   let speakerFilenameAlias = {}; // { "アリス": "char_0" }
+   let nextAliasId = 0;
+   let expressionAliasMap = {}; // { "アリス": { "笑顔": "emote_0" } }
+   let nextExpressionAliasId = 0;
 
 
    // Project file constants
    const PROJECT_FILE_EXTENSION = '.cclogproj';
    const PROJECT_DATA_FILENAME = 'project_data.json';
    const PROJECT_IMAGES_FOLDER = 'images/';
-   const PROJECT_FILE_FORMAT_VERSION = '1.4'; // Updated version for new settings
-   const APP_VERSION = '10.5-bg_image_text_edge'; // Updated version
+   const PROJECT_FILE_FORMAT_VERSION = '1.5'; // Updated version for new alias logic
+   const APP_VERSION = '10.6-alias'; // Updated version
 
   // --- DOM Elements ---
   const cocofoliaFileInput = document.getElementById('cocofolia-log-input');
@@ -85,10 +89,10 @@
   const skipDeleteConfirmToggle = document.getElementById('skip-delete-confirm-toggle');
   const addNewCharacterButton = document.getElementById('add-new-character-button');
   const baseTextColorInput = document.getElementById('base-text-color');
-  const textEdgeColorInput = document.getElementById('text-edge-color-input'); // New
-  const backgroundImageInput = document.getElementById('background-image-input'); // New
-  const backgroundImagePreview = document.getElementById('background-image-preview'); // New
-  const clearBackgroundImageButton = document.getElementById('clear-background-image-button'); // New
+  const textEdgeColorInput = document.getElementById('text-edge-color-input');
+  const backgroundImageInput = document.getElementById('background-image-input');
+  const backgroundImagePreview = document.getElementById('background-image-preview');
+  const clearBackgroundImageButton = document.getElementById('clear-background-image-button');
 
 
   const headingsNavPanel = document.getElementById('headings-nav-panel');
@@ -104,19 +108,19 @@
   const newCharIconModalInput = document.getElementById('new-char-icon-modal-input');
 
   const PLACEHOLDER_ICON_URL = 'https://placehold.co/64x64/e0e0e0/757575?text=?';
-  const LOCALSTORAGE_SETTINGS_KEY = 'logToolSettings_v10.2'; // Keep or version if structure changes significantly
-  const LOCALSTORAGE_CUSTOMIZATION_KEY = 'logToolCustomization_v10.5'; // Version up for new customization
+  const LOCALSTORAGE_SETTINGS_KEY = 'logToolSettings_v10.2';
+  const LOCALSTORAGE_CUSTOMIZATION_KEY = 'logToolCustomization_v10.5';
   const FONT_CLASSES = [
        'font-inter', 'font-noto-sans', 'font-noto-serif',
        'font-mplus-rounded', 'font-system-sans', 'font-system-serif',
        'font-system-mono'
   ];
   const MAX_FILE_SIZE_MB = 5;
-  const MAX_INSERT_IMAGE_SIZE_MB = 10; // For inserted images AND background image
+  const MAX_INSERT_IMAGE_SIZE_MB = 10;
   const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
   const MAX_INSERT_IMAGE_SIZE_BYTES = MAX_INSERT_IMAGE_SIZE_MB * 1024 * 1024;
   const HEADER_IMAGE_ANCHOR = 'header_image_anchor';
-  const BACKGROUND_IMAGE_KEY = 'bg_image'; // Key for uploadedFiles
+  const BACKGROUND_IMAGE_KEY = 'bg_image';
   const RENDER_CHUNK_SIZE = 50;
   const RENDER_CHUNK_DELAY = 0;
 
@@ -136,8 +140,11 @@
   }
   function sanitizeForFilename(name) {
        if (!name) return '';
-       return String(name).trim().replace(/[\\/:*?"<>|\s#\.\[\]\{\}%&+,;=]/g, '_').replace(/_+/g, '_');
+       // Alphanumeric, hyphen, underscore only.
+       const sanitized = String(name).trim().replace(/[^a-zA-Z0-9_-]/g, '_');
+       return sanitized.replace(/_+/g, '_');
   }
+
   function getImagePathForKey(key, fileObject) {
       if (!fileObject || !(fileObject instanceof Blob)) { console.warn(`getImagePathForKey: Invalid fileObject for key ${key}`); return null; }
       let outputFilename = null;
@@ -146,13 +153,36 @@
       if (key === BACKGROUND_IMAGE_KEY) {
           const safeName = sanitizeForFilename(customizationSettings.backgroundImageFileName || 'background');
           outputFilename = `${safeName}.${fileExtension}`;
-      } else if (key.startsWith('img_')) { const safeKeyBase = sanitizeForFilename(key); outputFilename = `${safeKeyBase}.${fileExtension}`; }
-      else if (key.startsWith('icon_msg_')) { const msgIdPart = key.substring(9); const safeMsgIdPart = sanitizeForFilename(msgIdPart); outputFilename = `${safeMsgIdPart}_override.${fileExtension}`; }
-      else if (key.startsWith('exp_')) { const parts = key.match(/^exp_(.+?)_(.+)$/); if (parts && parts.length === 3) { const safeSpeakerName = sanitizeForFilename(parts[1]); const safeExpName = sanitizeForFilename(parts[2]); outputFilename = `${safeSpeakerName}_${safeExpName}.${fileExtension}`; } }
-      else if (key.startsWith('newchar_')) { const charNamePart = key.substring(8); const safeCharName = sanitizeForFilename(charNamePart); outputFilename = `char_${safeCharName}_icon.${fileExtension}`; }
-      else { const safeSpeakerName = sanitizeForFilename(key); outputFilename = `${safeSpeakerName}_icon.${fileExtension}`; }
+      } else if (key.startsWith('img_')) {
+          const safeKeyBase = sanitizeForFilename(key);
+          outputFilename = `${safeKeyBase}.${fileExtension}`;
+      } else if (key.startsWith('icon_msg_')) {
+          const msgIdPart = key.substring(9);
+          const safeMsgIdPart = sanitizeForFilename(msgIdPart);
+          outputFilename = `${safeMsgIdPart}_override.${fileExtension}`;
+      } else if (key.startsWith('exp_')) {
+          const parts = key.match(/^exp_(.+?)_(.+)$/);
+          if (parts && parts.length === 3) {
+              const speakerName = parts[1];
+              const expName = parts[2];
+              const speakerAlias = speakerFilenameAlias[speakerName] || sanitizeForFilename(speakerName);
+              const expressionAlias = (expressionAliasMap[speakerName] && expressionAliasMap[speakerName][expName])
+                                      ? expressionAliasMap[speakerName][expName]
+                                      : sanitizeForFilename(expName);
+              outputFilename = `${speakerAlias}_${expressionAlias}.${fileExtension}`;
+          }
+      } else if (key.startsWith('newchar_')) {
+          const speakerName = key.substring(8);
+          const speakerAlias = speakerFilenameAlias[speakerName] || sanitizeForFilename(speakerName);
+          outputFilename = `${speakerAlias}_icon.${fileExtension}`;
+      } else {
+          const speakerName = key;
+          const speakerAlias = speakerFilenameAlias[speakerName] || sanitizeForFilename(speakerName);
+          outputFilename = `${speakerAlias}_icon.${fileExtension}`;
+      }
       return outputFilename ? `${PROJECT_IMAGES_FOLDER}${outputFilename}` : null;
   }
+
   function createFileFromBlob(blob, filename) { try { return new File([blob], filename, { type: blob.type || 'application/octet-stream', lastModified: Date.now() }); } catch (e) { console.warn("File constructor failed, creating simple Blob with name property.", e); try { blob.name = filename; blob.lastModifiedDate = new Date(); return blob; } catch (blobError){ console.error("Could not create File or add name to Blob.", blobError); return null; } } }
 
   function startFileProcessing(file, logTypeLabel) {
@@ -164,7 +194,7 @@
       exportHtmlTitleInput.value = logFileNameBase;
       exportZipFilenameInput.value = logFileNameBase;
       showLoading();
-      resetAppState(); // Resets customizationSettings too, so loadCustomization will be important after this if needed.
+      resetAppState();
       return true;
   }
 
@@ -180,14 +210,12 @@
           fileInfoSpan.textContent = '処理エラーが発生しました';
           logDisplayDiv.innerHTML = '<p class="text-red-500 text-center font-semibold">ログの処理中にエラーが発生しました。</p>';
           disableControls();
-          resetAppState(); // Full reset on error
+          resetAppState();
       }
       if (cocofoliaFileInput) cocofoliaFileInput.value = null;
       if (tekeyFileInput) tekeyFileInput.value = null;
-      // After successful file processing, we might want to re-apply previously saved customizations
-      // or ensure the defaults are set correctly. resetAppState sets defaults.
-      // loadCustomization(); // This might be redundant if resetAppState calls it.
-      // updateCustomizationUI(); // And this too.
+      loadCustomization();
+      updateCustomizationUI();
   }
 
   async function handleCocofoliaFileSelect(event) {
@@ -232,10 +260,10 @@
       isProcessingFile = true;
       projectLoadInfoSpan.textContent = `プロジェクト読込中: ${escapeHtml(file.name)}...`;
       fileInfoSpan.textContent = ''; showLoading();
-      resetAppState(); // Full reset before loading project
+      resetAppState();
       let success = false; let errorMessage = '';
       try {
-          await loadProject(file); // loadProject now handles customization settings internally
+          await loadProject(file);
           projectLoadInfoSpan.textContent = `プロジェクト読込完了: ${escapeHtml(file.name)}`;
            const baseName = file.name.replace(PROJECT_FILE_EXTENSION, '');
            exportHtmlTitleInput.value = logFileNameBase || baseName;
@@ -252,6 +280,9 @@
 
   function initializeAfterParse(parsedData) {
        speakerFrequencies = {}; uniqueTabsFound = new Set();
+       speakerFilenameAlias = {}; nextAliasId = 0;
+       expressionAliasMap = {}; nextExpressionAliasId = 0;
+
        parsedData.forEach(item => {
            if (item.type === 'message') {
                if(item.speaker && item.speaker !== 'system' && item.speaker !== '不明') { speakerFrequencies[item.speaker] = (speakerFrequencies[item.speaker] || 0) + 1; }
@@ -269,22 +300,30 @@
            return item;
        });
        initializeCharacterSettings();
+
+       const allKnownSpeakers = new Set([...Object.keys(speakerFrequencies), ...Object.keys(characterSettings)]);
+       allKnownSpeakers.forEach(speaker => {
+           if (speaker !== 'system' && speaker !== '不明' && !speakerFilenameAlias[speaker]) {
+               if (/^[a-zA-Z0-9_]+$/.test(speaker)) {
+                   speakerFilenameAlias[speaker] = speaker;
+               } else {
+                   speakerFilenameAlias[speaker] = `char_${nextAliasId++}`;
+               }
+           }
+       });
+
        updateSpeakerDataForExport();
        populateCharacterSettingsUI();
        populateTabsUI();
        populateSpeakerFilterUI();
-       // Customization settings should be preserved or reloaded if a new log is parsed
-       // resetAppState already called resetCustomizationDefaults. If user had settings, they might want them.
-       // This is tricky. For now, parsing a new log uses defaults. Loading a project uses project's settings.
-       loadCustomization(); // Re-apply localStorage customization if any, after log parse
-       updateCustomizationUI(); // Ensure UI reflects current customization
+       loadCustomization();
+       updateCustomizationUI();
        renderLog();
    }
 
   function resetAppState() {
        displayLogData = []; characterSettings = {};
-       // customizationSettings reset to defaults is handled by resetCustomizationDefaults
-       resetCustomizationDefaults(); // This now includes new settings
+       resetCustomizationDefaults();
        currentTabFilter = 'all'; currentSpeakerFilter = 'all'; uploadedFiles = {};
        speakerFrequencies = {}; uniqueTabsFound = new Set(['all']);
        nextUniqueId = 0; imageInsertTarget = { type: null, itemId: null}; actionTargetItemId = null; speakerDataForExport = {};
@@ -295,10 +334,12 @@
        logTabsNav.innerHTML = '<span class="whitespace-nowrap py-2 px-1 text-gray-500 text-sm italic">ログ読込中</span>';
        speakerFilterSelect.innerHTML = '<option value="all">すべての発言者</option>';
        logDisplayDiv.innerHTML = '<p class="text-gray-500 text-center italic">ここに整形されたログが表示されます。</p>';
-       updateCustomizationUI(); // This must be after resetCustomizationDefaults
+       speakerFilenameAlias = {}; nextAliasId = 0;
+       expressionAliasMap = {}; nextExpressionAliasId = 0;
+       updateCustomizationUI();
        disableControls(); updateHeadingsNav(); closeHeadingsNav();
        if (iconChangeInput) iconChangeInput.value = null; if (insertImageInput) insertImageInput.value = null;
-       if (backgroundImageInput) backgroundImageInput.value = null; // New
+       if (backgroundImageInput) backgroundImageInput.value = null;
        if (cocofoliaFileInput) cocofoliaFileInput.value = null; if (tekeyFileInput) tekeyFileInput.value = null; if (projectLoadInput) projectLoadInput.value = null;
        closeIconDropdown(); closeModal(genericModal);
   }
@@ -361,7 +402,8 @@
           if (!div.textContent?.trim()) return;
           try {
               let tabId = 'tab1';
-              const tabClasses = ['tab1', 'tab2', 'tab3', 'tab4', 'tab5'];
+              // Allow more tabs for Tekey
+              const tabClasses = Array.from({length: 20}, (_, i) => `tab${i + 1}`);
               for (const tc of tabClasses) {
                   if (div.classList.contains(tc)) {
                       tabId = tc;
@@ -593,6 +635,14 @@
            if (!characterSettings[currentSpeaker]) characterSettings[currentSpeaker] = { displayName: currentSpeaker, icon: null, expressions: {}, alignment: 'left', color: '#000000', customTextColor: null, isNew: true };
            if (!characterSettings[currentSpeaker].expressions) characterSettings[currentSpeaker].expressions = {};
            characterSettings[currentSpeaker].expressions[expressionName] = dataUrl;
+
+           if (!expressionAliasMap[currentSpeaker]) {
+               expressionAliasMap[currentSpeaker] = {};
+           }
+           if (!expressionAliasMap[currentSpeaker][expressionName]) {
+               expressionAliasMap[currentSpeaker][expressionName] = `emote_${nextExpressionAliasId++}`;
+           }
+
            const uploadKey = `exp_${currentSpeaker}_${expressionName}`; uploadedFiles[uploadKey] = file;
            if (nameInput) nameInput.value = '';
            const expressionListDiv = document.getElementById(`expressions-${uniqueSpeakerIdSuffix}`)?.querySelector('.space-y-1');
@@ -604,15 +654,17 @@
   function handleDeleteExpression(speaker, expressionName) {
        if (!characterSettings[speaker]?.expressions?.[expressionName]) return;
        if (!(customizationSettings.skipDeleteConfirm || confirm(`「${speaker}」の差分「${expressionName}」を削除しますか？`))) return;
-       delete characterSettings[speaker].expressions[expressionName]; const uploadKey = `exp_${speaker}_${expressionName}`; if (uploadedFiles[uploadKey]) delete uploadedFiles[uploadKey];
+       delete characterSettings[speaker].expressions[expressionName];
+       if (expressionAliasMap[speaker] && expressionAliasMap[speaker][expressionName]) {
+           delete expressionAliasMap[speaker][expressionName];
+       }
+       const uploadKey = `exp_${speaker}_${expressionName}`; if (uploadedFiles[uploadKey]) delete uploadedFiles[uploadKey];
        const uniqueSpeakerIdSuffix = sanitizeForFilename(speaker); const expressionListDiv = document.getElementById(`expressions-${uniqueSpeakerIdSuffix}`)?.querySelector('.space-y-1');
        if (expressionListDiv) populateExpressionList(expressionListDiv, speaker);
 
-       let updatedMessagesCount = 0;
        displayLogData.forEach(item => {
            if (item.type === 'message' && item.speaker === speaker && item.iconKey === expressionName) {
                item.iconKey = 'default';
-               updatedMessagesCount++;
                const messageElement = logDisplayDiv.querySelector(`.message-item[data-item-id="${item.id}"]`);
                if (messageElement) {
                    updateMessageIconElement(messageElement, item);
@@ -691,7 +743,7 @@
       genericModalTitle.textContent = '新規キャラクター追加';
       genericModalBody.innerHTML = `
           <div class="modal-form-group">
-              <label for="new-char-name">内部名 (必須, 半角英数):</label>
+              <label for="new-char-name">内部名 (必須, 半角英数と_のみ):</label>
               <input type="text" id="new-char-name" placeholder="e.g. player1_Alice">
           </div>
           <div class="modal-form-group">
@@ -775,6 +827,10 @@
           isNew: true
       };
       if (iconFile) uploadedFiles[`newchar_${internalName}`] = iconFile;
+
+      if (!speakerFilenameAlias[internalName]) {
+          speakerFilenameAlias[internalName] = internalName;
+      }
 
       updateSpeakerDataForExport();
       populateCharacterSettingsUI();
@@ -1043,7 +1099,7 @@
        logDisplayDiv.style.setProperty('--bubble-right-arrow-color', customizationSettings.rightBubbleColor);
        logDisplayDiv.style.setProperty('--icon-size', `${customizationSettings.iconSize}px`);
        logDisplayDiv.style.color = customizationSettings.baseTextColor;
-       logDisplayDiv.style.setProperty('--text-edge-color', customizationSettings.textEdgeColor); // New
+       logDisplayDiv.style.setProperty('--text-edge-color', customizationSettings.textEdgeColor);
        logDisplayDiv.classList.toggle('name-below-icon-active', customizationSettings.nameBelowIconMode);
 
        let filteredItems = displayLogData.filter(item => {
@@ -1161,7 +1217,7 @@
       messageContainer.appendChild(iconContainer);
 
       const contentContainer = document.createElement('div'); contentContainer.className = 'content-container';
-      const speakerNameSpan = document.createElement('span'); speakerNameSpan.className = 'speaker-name-default'; speakerNameSpan.innerHTML = `${escapeHtml(setting.displayName)} <span class="text-xs font-normal text-gray-500" style="text-shadow: none;">[${escapeHtml(logItem.tab || 'main')}]</span>`; // Tab part no shadow
+      const speakerNameSpan = document.createElement('span'); speakerNameSpan.className = 'speaker-name-default'; speakerNameSpan.innerHTML = `${escapeHtml(setting.displayName)} <span class="text-xs font-normal text-gray-500" style="text-shadow: none;">[${escapeHtml(logItem.tab || 'main')}]</span>`;
       speakerNameSpan.style.color = messageTextColor;
       const tabBelowIconSpan = document.createElement('span'); tabBelowIconSpan.className = 'tab-name-below-icon'; tabBelowIconSpan.textContent = `[${escapeHtml(logItem.tab || 'main')}]`;
 
@@ -1207,8 +1263,7 @@
       const narrationSpeaker = document.createElement('span'); narrationSpeaker.className = 'narration-speaker'; narrationSpeaker.textContent = `${escapeHtml(setting.displayName)}:`;
       const narrationMessage = document.createElement('span'); narrationMessage.className = 'narration-message'; narrationMessage.innerHTML = logItem.message; narrationMessage.contentEditable = "true"; narrationMessage.dataset.itemId = logItem.id; narrationMessage.addEventListener('blur', handleMessageEdit);
 
-      // Narration layout improved: Tab and Speaker on same line as message start
-      const narrationLine = document.createElement('div'); // New wrapper for single line effect
+      const narrationLine = document.createElement('div');
       narrationLine.appendChild(narrationTab);
       narrationLine.appendChild(narrationSpeaker);
       narrationLine.appendChild(narrationMessage);
@@ -1220,7 +1275,7 @@
       narrationActionButtonContainer.style.marginLeft = '10px';
       const narrationDeleteButton = createDeleteButton(logItem.id, 'メッセージ');
       if (narrationDeleteButton) { narrationActionButtonContainer.appendChild(narrationDeleteButton); }
-      narrationContainer.appendChild(narrationActionButtonContainer); // Append actions after the line
+      narrationContainer.appendChild(narrationActionButtonContainer);
       container.appendChild(narrationContainer);
 
       const toggleButton = document.createElement('button'); toggleButton.className = 'display-mode-toggle'; toggleButton.title = '表示モード切替 (フキダシ/描写)'; toggleButton.textContent = (currentDisplayMode === 'narration') ? '💬' : '📝'; toggleButton.onclick = () => toggleMessageDisplayMode(logItem.id);
@@ -1486,11 +1541,7 @@
 
       const elementToRemove = logDisplayDiv.querySelector(`[data-item-id="${itemId}"]`);
       if (elementToRemove) {
-          const prevSibling = elementToRemove.previousElementSibling;
           elementToRemove.remove();
-          if (prevSibling && prevSibling.classList.contains('tab-separator') && currentTabFilter === 'all') {
-              // Future: Re-evaluate separator if needed
-          }
       }
 
       if (itemToDelete.type === 'heading') updateHeadingsNav();
@@ -1642,7 +1693,7 @@
         uploadedFiles[BACKGROUND_IMAGE_KEY] = file;
         backgroundImagePreview.src = dataUrl;
         backgroundImagePreview.classList.add('has-image');
-        applyCustomization(); // Apply and save
+        applyCustomization();
     } catch (error) {
         console.error("Error processing background image:", error);
         alert(`背景画像の読み込みエラー: ${error.message}`);
@@ -1653,7 +1704,7 @@
         backgroundImagePreview.classList.remove('has-image');
     } finally {
         hideLoading();
-        backgroundImageInput.value = null; // Clear file input
+        backgroundImageInput.value = null;
     }
   }
 
@@ -1663,7 +1714,7 @@
     delete uploadedFiles[BACKGROUND_IMAGE_KEY];
     backgroundImagePreview.src = '';
     backgroundImagePreview.classList.remove('has-image');
-    applyCustomization(); // Apply and save
+    applyCustomization();
   }
 
   function applyCustomization() {
@@ -1679,8 +1730,7 @@
           customizationSettings.logDisplayHeight = parseInt(logHeightSlider.value, 10) || 384;
           customizationSettings.skipDeleteConfirm = skipDeleteConfirmToggle.checked;
           customizationSettings.baseTextColor = baseTextColorInput.value;
-          customizationSettings.textEdgeColor = textEdgeColorInput.value; // New
-          // backgroundImage is handled by its own functions
+          customizationSettings.textEdgeColor = textEdgeColorInput.value;
 
           saveCustomization(); renderLog();
       } catch (error) { console.error("Error applying customization:", error); alert(`カスタマイズ適用エラー: ${error.message}`); }
@@ -1692,16 +1742,15 @@
           iconSize: 64, bubbleMaxWidth: 80, nameBelowIconMode: false,
           fontFamily: 'font-noto-sans', logDisplayHeight: 384,
           skipDeleteConfirm: false, baseTextColor: '#333333',
-          textEdgeColor: '#ffffff', // New
-          backgroundImage: null, // New
-          backgroundImageFileName: null // New
+          textEdgeColor: '#ffffff',
+          backgroundImage: null,
+          backgroundImageFileName: null
       };
-      // Also clear from uploadedFiles if reset is called
       delete uploadedFiles[BACKGROUND_IMAGE_KEY];
   }
   function resetCustomization() {
       resetCustomizationDefaults();
-      updateCustomizationUI(); // This will also clear the preview for BG image
+      updateCustomizationUI();
       applyCustomization();
       alert('表示カスタマイズをリセットしました。');
   }
@@ -1711,9 +1760,8 @@
           rightBubbleColorInput.value = customizationSettings.rightBubbleColor;
           fontSizeSlider.value = customizationSettings.fontSize; fontSizeValueSpan.textContent = customizationSettings.fontSize; backgroundColorInput.value = customizationSettings.backgroundColor; iconSizeSlider.value = customizationSettings.iconSize; iconSizeValueSpan.textContent = customizationSettings.iconSize; bubbleWidthSlider.value = customizationSettings.bubbleMaxWidth; bubbleWidthValueSpan.textContent = customizationSettings.bubbleMaxWidth; nameBelowIconToggle.checked = customizationSettings.nameBelowIconMode; fontFamilySelect.value = customizationSettings.fontFamily; logHeightSlider.value = customizationSettings.logDisplayHeight; logHeightValueSpan.textContent = customizationSettings.logDisplayHeight; skipDeleteConfirmToggle.checked = customizationSettings.skipDeleteConfirm;
           baseTextColorInput.value = customizationSettings.baseTextColor;
-          textEdgeColorInput.value = customizationSettings.textEdgeColor; // New
+          textEdgeColorInput.value = customizationSettings.textEdgeColor;
 
-          // Background image preview
           if (customizationSettings.backgroundImage && customizationSettings.backgroundImageFileName) {
               backgroundImagePreview.src = customizationSettings.backgroundImage;
               backgroundImagePreview.classList.add('has-image');
@@ -1727,24 +1775,7 @@
    function loadCustomization() {
       let loaded = null; try { const savedJson = localStorage.getItem(LOCALSTORAGE_CUSTOMIZATION_KEY); if (savedJson) loaded = JSON.parse(savedJson); } catch (error) { console.error("Error loading customization settings from LocalStorage:", error); localStorage.removeItem(LOCALSTORAGE_CUSTOMIZATION_KEY); }
       if (loaded) {
-          customizationSettings.normalBubbleColor = loaded.normalBubbleColor || '#ffffff';
-          customizationSettings.rightBubbleColor = loaded.rightBubbleColor || '#dcf8c6';
-          customizationSettings.fontSize = parseInt(loaded.fontSize, 10) || 16; customizationSettings.backgroundColor = loaded.backgroundColor || '#f3f4f6'; customizationSettings.iconSize = parseInt(loaded.iconSize, 10) || 64; customizationSettings.bubbleMaxWidth = parseInt(loaded.bubbleMaxWidth, 10) || 80; customizationSettings.nameBelowIconMode = loaded.nameBelowIconMode === true; customizationSettings.fontFamily = loaded.fontFamily || 'font-noto-sans'; customizationSettings.logDisplayHeight = parseInt(loaded.logDisplayHeight, 10) || 384; customizationSettings.skipDeleteConfirm = loaded.skipDeleteConfirm === true;
-          customizationSettings.baseTextColor = loaded.baseTextColor || '#333333';
-          customizationSettings.textEdgeColor = loaded.textEdgeColor || '#ffffff'; // New
-          customizationSettings.backgroundImage = loaded.backgroundImage || null; // New (DataURL)
-          customizationSettings.backgroundImageFileName = loaded.backgroundImageFileName || null; // New
-
-          // Important: If backgroundImage (DataURL) is loaded from localStorage,
-          // uploadedFiles[BACKGROUND_IMAGE_KEY] is NOT automatically restored.
-          // This is generally fine for local use, but project save/load should handle File objects.
-          // If loaded.backgroundImage exists but no file, it means it's a DataURL from LS.
-          if (customizationSettings.backgroundImage && !uploadedFiles[BACKGROUND_IMAGE_KEY]) {
-              // Potentially convert DataURL to Blob here if needed for consistency, but it's complex.
-              // For now, `uploadedFiles` is primarily for files actively selected by user or loaded from project.
-              console.log("Background image DataURL loaded from localStorage.");
-          }
-
+          Object.assign(customizationSettings, loaded);
       } else { resetCustomizationDefaults(); }
   }
 
@@ -1759,13 +1790,12 @@
           const projectData = {
               fileFormatVersion: PROJECT_FILE_FORMAT_VERSION, toolVersion: APP_VERSION, createdAt: new Date().toISOString(),
               logFileNameBase: logFileNameBase, characterSettings: {},
-              customizationSettings: { ...customizationSettings }, // Make a copy
+              customizationSettings: { ...customizationSettings },
               displayLogData: [], uploadedFileManifest: {}, nextUniqueId: nextUniqueId,
               currentFilters: { tab: currentTabFilter, speaker: currentSpeakerFilter }
           };
-          // Remove DataURL for backgroundImage from projectData if file will be stored
           projectData.customizationSettings.backgroundImage = null;
-          projectData.customizationSettings.backgroundImagePath = null; // Will be set if file exists
+          projectData.customizationSettings.backgroundImagePath = null;
 
           const imagePathMap = new Map(); const addedFiles = new Set();
           for (const [key, fileObject] of Object.entries(uploadedFiles)) {
@@ -1780,7 +1810,7 @@
                       let manifestEntry = { type: 'unknown' };
                       if (key === BACKGROUND_IMAGE_KEY) {
                           manifestEntry = { type: 'backgroundImage', fileName: customizationSettings.backgroundImageFileName };
-                          projectData.customizationSettings.backgroundImagePath = imagePath; // Store path
+                          projectData.customizationSettings.backgroundImagePath = imagePath;
                       }
                       else if (key.startsWith('img_')) manifestEntry = { type: 'insertedImage', imageId: key };
                       else if (key.startsWith('icon_msg_')) manifestEntry = { type: 'overrideIcon', messageId: key.substring(9) };
@@ -1792,7 +1822,6 @@
               }
                else if (imagePath && addedFiles.has(imagePath)) {
                   imagePathMap.set(key, imagePath);
-                  // If it's the background image and already added, ensure its path is in customizationSettings
                   if (key === BACKGROUND_IMAGE_KEY) {
                       projectData.customizationSettings.backgroundImagePath = imagePath;
                   }
@@ -1843,11 +1872,6 @@
       const projectDataJson = await projectDataFile.async('string'); let projectData;
       try { projectData = JSON.parse(projectDataJson); } catch (e) { throw new Error(`${PROJECT_DATA_FILENAME} 解析エラー: ${e.message}`); }
 
-      const acceptedVersions = [PROJECT_FILE_FORMAT_VERSION, '1.3', '1.2', '1.1', '1.0']; // Add 1.3
-      if (!acceptedVersions.includes(projectData.fileFormatVersion)) {
-        console.warn(`Project version mismatch. Expected one of ${acceptedVersions.join('/')}, got ${projectData.fileFormatVersion}. Trying load anyway.`);
-      }
-
       logFileNameBase = projectData.logFileNameBase || 'loaded_project';
       const defaultCustomization = {
           normalBubbleColor: '#ffffff', rightBubbleColor: '#dcf8c6',
@@ -1856,16 +1880,50 @@
           logDisplayHeight: 384, skipDeleteConfirm: false, baseTextColor: '#333333',
           textEdgeColor: '#ffffff', backgroundImage: null, backgroundImageFileName: null, backgroundImagePath: null
       };
-      // Merge carefully, especially for new fields like backgroundImagePath
       customizationSettings = { ...defaultCustomization, ...projectData.customizationSettings };
-      // Ensure new fields not in older projects get defaults
       if (typeof customizationSettings.textEdgeColor === 'undefined') customizationSettings.textEdgeColor = defaultCustomization.textEdgeColor;
       if (typeof customizationSettings.backgroundImageFileName === 'undefined') customizationSettings.backgroundImageFileName = defaultCustomization.backgroundImageFileName;
-      // backgroundImage (DataURL) is loaded later from backgroundImagePath
 
       nextUniqueId = projectData.nextUniqueId || 0;
       const filters = projectData.currentFilters || { tab: 'all', speaker: 'all' };
       currentTabFilter = filters.tab; currentSpeakerFilter = filters.speaker;
+
+      characterSettings = {};
+      if (projectData.characterSettings) {
+          for (const [speaker, loadedSetting] of Object.entries(projectData.characterSettings)) {
+              characterSettings[speaker] = { // Temporary load, paths will be replaced by DataURLs
+                  displayName: loadedSetting.displayName,
+                  icon: loadedSetting.iconPath,
+                  expressions: loadedSetting.expressions || {},
+                  alignment: loadedSetting.alignment || 'left',
+                  color: loadedSetting.color || '#000000',
+                  customTextColor: loadedSetting.customTextColor || null,
+                  isNew: !!loadedSetting.isNew
+              };
+          }
+      }
+
+      speakerFilenameAlias = {}; nextAliasId = 0;
+      expressionAliasMap = {}; nextExpressionAliasId = 0;
+      if (projectData.characterSettings) {
+          Object.entries(projectData.characterSettings).forEach(([speaker, setting]) => {
+              if (speaker !== 'system' && speaker !== '不明' && !speakerFilenameAlias[speaker]) {
+                  if (/^[a-zA-Z0-9_]+$/.test(speaker)) {
+                      speakerFilenameAlias[speaker] = speaker;
+                  } else {
+                      speakerFilenameAlias[speaker] = `char_${nextAliasId++}`;
+                  }
+              }
+              if (setting.expressions) {
+                  expressionAliasMap[speaker] = {};
+                  Object.keys(setting.expressions).forEach(expName => {
+                      if (!expressionAliasMap[speaker][expName]) {
+                          expressionAliasMap[speaker][expName] = `emote_${nextExpressionAliasId++}`;
+                      }
+                  });
+              }
+          });
+      }
 
       const imageFolder = zip.folder(PROJECT_IMAGES_FOLDER.replace('/', '')); const imageDataUrlMap = new Map(); const newUploadedFiles = {};
       if (imageFolder) {
@@ -1883,8 +1941,8 @@
                           let key = null;
                           if (manifestEntry.type === 'backgroundImage') {
                               key = BACKGROUND_IMAGE_KEY;
-                              customizationSettings.backgroundImage = dataUrl; // Load DataURL
-                              customizationSettings.backgroundImageFileName = manifestEntry.fileName; // Load original filename
+                              customizationSettings.backgroundImage = dataUrl;
+                              customizationSettings.backgroundImageFileName = manifestEntry.fileName;
                           }
                           else if (manifestEntry.type === 'defaultIcon') key = manifestEntry.speaker;
                           else if (manifestEntry.type === 'newCharIcon') key = `newchar_${manifestEntry.speaker}`;
@@ -1899,40 +1957,23 @@
           });
           await Promise.all(imagePromises); uploadedFiles = newUploadedFiles;
       }
-      // If backgroundImagePath was in projectData.customizationSettings but not in manifest (older version), try to load it.
       if (customizationSettings.backgroundImagePath && !customizationSettings.backgroundImage) {
           const bgDataUrl = imageDataUrlMap.get(customizationSettings.backgroundImagePath);
           if (bgDataUrl) {
               customizationSettings.backgroundImage = bgDataUrl;
-              // Attempt to find the corresponding file in newUploadedFiles if possible (might be tricky if key wasn't manifest'd)
-              // Or, reconstruct the File object if blob was loaded for this path
-              for (const [key, fileObj] of Object.entries(newUploadedFiles)) {
-                  if (getImagePathForKey(key, fileObj) === customizationSettings.backgroundImagePath) {
-                      // This implies uploadedFiles might already have it if manifest was processed.
-                      // If it was an unmanifested path, this part is harder.
-                      break;
-                  }
+          }
+      }
+
+      // Re-populate characterSettings with DataURLs
+      for (const [speaker, setting] of Object.entries(characterSettings)) {
+          setting.icon = setting.icon ? (imageDataUrlMap.get(setting.icon) || null) : null;
+          if (setting.expressions) {
+              for (const [expName, expPath] of Object.entries(setting.expressions)) {
+                  setting.expressions[expName] = expPath ? (imageDataUrlMap.get(expPath) || null) : null;
               }
           }
       }
 
-
-      characterSettings = {};
-      if (projectData.characterSettings) {
-          for (const [speaker, loadedSetting] of Object.entries(projectData.characterSettings)) {
-              const newSetting = {
-                  displayName: loadedSetting.displayName,
-                  icon: loadedSetting.iconPath ? (imageDataUrlMap.get(loadedSetting.iconPath) || null) : null,
-                  expressions: {},
-                  alignment: loadedSetting.alignment || 'left',
-                  color: loadedSetting.color || '#000000',
-                  customTextColor: loadedSetting.customTextColor || null,
-                  isNew: !!loadedSetting.isNew
-              };
-              if (loadedSetting.expressions) { for (const [expName, expPath] of Object.entries(loadedSetting.expressions)) { newSetting.expressions[expName] = expPath ? (imageDataUrlMap.get(expPath) || null) : null; } }
-              characterSettings[speaker] = newSetting;
-          }
-      }
       displayLogData = [];
       if (projectData.displayLogData) {
           displayLogData = projectData.displayLogData.map(item => {
@@ -1987,14 +2028,14 @@
        finally { hideLoading(); }
   }
   function generateOutputHtml(dataForExport, uniqueTabs, speakerData, htmlTitle, currentCustomization, _embeddedJsContent_unused) {
-      const { iconSize, nameBelowIconMode, fontFamily, normalBubbleColor, baseTextColor, rightBubbleColor, textEdgeColor, backgroundImageFileName } = currentCustomization; // Added textEdgeColor, backgroundImageFileName
+      const { iconSize, nameBelowIconMode, fontFamily, normalBubbleColor, baseTextColor, rightBubbleColor, textEdgeColor, backgroundImageFileName } = currentCustomization;
       let logBodyContent = ''; let headingsForNavOutput = [];
 
       const typeSortOrder = { heading: 1, message: 2, image: 3, error: 4 };
       const sortedExportData = [...dataForExport].sort((a, b) =>
           (a.originalIndex - b.originalIndex) ||
           ((a.insertOrder || 0) - (b.insertOrder || 0)) ||
-          (typeSortOrder[a.type] - typeSortOrder[b.type])
+          (typeSortOrder[a.type] - b.type)
       );
 
       sortedExportData.forEach((item, index) => {
@@ -2088,9 +2129,8 @@
 </div>`;
       const headingsNavHtml = headingsForNavOutput.length > 0 ? `<div id="export-headings-nav-container" class="export-headings-nav"><button id="export-toggle-headings-nav" title="見出し一覧の表示/非表示">見出し</button><div class="nav-content"><h5>見出し</h5><ul id="export-headings-list"></ul></div></div>` : "";
       const safeHtmlTitle = escapeHtml(htmlTitle); const nameBelowIconBodyClass = nameBelowIconMode ? 'name-below-icon-active' : ''; const fontBodyClass = fontFamily || 'font-noto-sans';
-      const finalEmbeddedJsContent = generateEmbeddedJsForExport(speakerDataForExport, headingsForNavOutput, baseTextColor, textEdgeColor); // Pass textEdgeColor
+      const finalEmbeddedJsContent = generateEmbeddedJsForExport(speakerDataForExport, headingsForNavOutput, baseTextColor, textEdgeColor);
 
-      // Add class 'has-background-image' if applicable
       const bodyClasses = [nameBelowIconBodyClass, fontBodyClass, 'export-body'];
       if (customizationSettings.backgroundImage && customizationSettings.backgroundImageFileName) {
           bodyClasses.push('has-background-image');
@@ -2100,18 +2140,17 @@
 <html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${safeHtmlTitle}</title><link rel="stylesheet" href="style.css"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Noto+Sans+JP:wght@400;700&family=Noto+Serif+JP:wght@400;700&family=M+PLUS+Rounded+1c:wght@400;700&display=swap" rel="stylesheet"></head>
 <body class="${bodyClasses.join(' ')}">${headingsNavHtml}<div class="log-export-container"><h1>${safeHtmlTitle}</h1>${filterControlsHtml}<div id="export-log-display" class="log-display export">${logBodyContent || '<p class="empty-log-message export">ログデータがありません。</p>'}</div></div><script>${finalEmbeddedJsContent}<\/script></body></html>`;
   }
-  function generateEmbeddedJsForExport(speakerDataForExport, headingsData, baseTextColor, textEdgeColor) { // Added textEdgeColor
+  function generateEmbeddedJsForExport(speakerDataForExport, headingsData, baseTextColor, textEdgeColor) {
        const speakerMapString = JSON.stringify(speakerDataForExport || {});
        const headingsDataString = JSON.stringify(headingsData || []);
        const baseTextColorString = JSON.stringify(baseTextColor || '#333333');
-       const textEdgeColorString = JSON.stringify(textEdgeColor || '#ffffff'); // New
+       const textEdgeColorString = JSON.stringify(textEdgeColor || '#ffffff');
 
        return `
 (function() { "use strict";
-let currentExportTab = 'all'; let currentExportSpeaker = 'all'; const speakerSettings = ${speakerMapString}; const exportBaseTextColor = ${baseTextColorString}; const exportTextEdgeColor = ${textEdgeColorString}; /* New */ const exportLogTabsNav = document.getElementById('export-log-tabs'); const exportSpeakerFilter = document.getElementById('export-speaker-filter'); const exportLogDisplay = document.getElementById('export-log-display'); const allLogItems = exportLogDisplay ? Array.from(exportLogDisplay.querySelectorAll('.log-item')) : [];
+let currentExportTab = 'all'; let currentExportSpeaker = 'all'; const speakerSettings = ${speakerMapString}; const exportBaseTextColor = ${baseTextColorString}; const exportTextEdgeColor = ${textEdgeColorString}; const exportLogTabsNav = document.getElementById('export-log-tabs'); const exportSpeakerFilter = document.getElementById('export-speaker-filter'); const exportLogDisplay = document.getElementById('export-log-display'); const allLogItems = exportLogDisplay ? Array.from(exportLogDisplay.querySelectorAll('.log-item')) : [];
 if (!exportLogDisplay) { console.error("Export log display not found."); return; }
 
-// Set CSS variable for text edge color in the exported HTML
 document.documentElement.style.setProperty('--text-edge-color', exportTextEdgeColor);
 
 function getSpeakerTextColor(speakerId) { return (speakerSettings[speakerId] && speakerSettings[speakerId].customTextColor) ? speakerSettings[speakerId].customTextColor : exportBaseTextColor; }
@@ -2191,8 +2230,8 @@ else { initializeExportFilters(); initializeExportHeadingsNav(); }
       let backgroundImageExportPath = '';
       if (backgroundImage && backgroundImageFileName && uploadedFiles[BACKGROUND_IMAGE_KEY]) {
           backgroundImageExportPath = getImagePathForKey(BACKGROUND_IMAGE_KEY, uploadedFiles[BACKGROUND_IMAGE_KEY]);
-      } else if (backgroundImage && !backgroundImageFileName) { // For DataURL direct from old LS or if file processing failed
-          backgroundImageExportPath = backgroundImage; // Use DataURL directly
+      } else if (backgroundImage) {
+          backgroundImageExportPath = backgroundImage;
       }
 
 
@@ -2209,17 +2248,18 @@ else { initializeExportFilters(); initializeExportHeadingsNav(); }
     --bubble-right-arrow-color: ${rightBubbleColor};
     --icon-size: ${iconSize}px;
     --base-text-color: ${baseTextColor};
-    --text-edge-color: ${textEdgeColor}; /* Applied by JS */
+    --text-edge-color: ${textEdgeColor};
 }
 body.export-body {
     font-family: ${selectedFontFamily};
     margin: 0;
-    padding: 0; /* Padding applied to container */
-    background-color: ${backgroundColor}; /* Fallback */
+    padding: 0;
+    background-color: ${backgroundColor};
     font-size: ${fontSize}px;
     line-height: 1.7;
     color: var(--base-text-color);
     position: relative;
+    transition: margin-left 0.3s ease-in-out;
 }
 body.export-body.has-background-image::before {
     content: "";
@@ -2234,12 +2274,12 @@ body.export-body.has-background-image::before {
 }
 .log-export-container {
     max-width: 900px;
-    margin: 0 auto; /* Padding applied here */
+    margin: 20px auto;
     padding: 20px 25px;
     background-color: ${logContainerBg};
     border-radius: 8px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-    position: relative; /* Ensure it's above body::before */
+    position: relative;
     z-index: 1;
 }
 h1 {
@@ -2250,7 +2290,6 @@ h1 {
     text-align: center;
     color: var(--base-text-color);
 }
-/* Filter Controls */
 .filter-controls.export {
     background-color: #f8f9fa;
     padding: 10px 15px;
@@ -2277,28 +2316,14 @@ h1 {
     font-size: 0.9em; background-color: white; min-width: 150px;
 }
 .tab-nav.export .placeholder { font-size: 0.85em; color: #6c757d; }
-
-/* Log Display Area */
 .log-display.export { margin-top: 10px; }
 .hidden-log-item { display: none !important; }
 .log-item { margin-bottom: 16px; }
-
-/* Text Edging Helper */
-.text-edged {
-    text-shadow: -1px -1px 0 var(--text-edge-color), 1px -1px 0 var(--text-edge-color), -1px 1px 0 var(--text-edge-color), 1px 1px 0 var(--text-edge-color);
-}
-.text-edged-strong {
-    text-shadow: -1px -1px 0 var(--text-edge-color), 1px -1px 0 var(--text-edge-color), -1px 1px 0 var(--text-edge-color), 1px 1px 0 var(--text-edge-color), -1.5px -1.5px 0 var(--text-edge-color), 1.5px -1.5px 0 var(--text-edge-color), -1.5px 1.5px 0 var(--text-edge-color), 1.5px 1.5px 0 var(--text-edge-color);
-}
-
-/* Message Item Styling */
 .message-item.export { position: relative; }
 .message-container.export { display: flex; align-items: flex-start; }
 .narration-container.export { padding: 2px 4px; line-height: inherit; }
-
 .message-item.export[data-display-mode="narration"] .message-container.export { display: none; }
 .message-item.export[data-display-mode="bubble"] .narration-container.export { display: none; }
-
 .message-container.export.align-right { flex-direction: row-reverse; }
 .message-container.export.align-right .icon-container.export { margin-left: 12px; margin-right: 0; }
 .message-container.export.align-right .content-container.export { text-align: right; }
@@ -2311,7 +2336,6 @@ h1 {
     left: auto; right: -8px; border-width: 8px 0 8px 10px;
     border-color: transparent transparent transparent var(--bubble-right-arrow-color);
 }
-
 .icon-container.export {
     flex-shrink: 0; margin-right: 12px;
     width: var(--icon-size); height: var(--icon-size);
@@ -2332,18 +2356,12 @@ h1 {
     line-height: ${placeholderLineHeight}px; font-size: ${placeholderFontSize}px;
 }
 .content-container.export { flex-grow: 1; min-width: 0; }
-.speaker-name-default.export {
-    display: block; font-weight: bold; margin-bottom: 4px; font-size: 0.9em;
+.speaker-name-default.export, .narration-speaker, .speaker-name-below-icon.export {
     text-shadow: -1px -1px 0 var(--text-edge-color), 1px -1px 0 var(--text-edge-color), -1px 1px 0 var(--text-edge-color), 1px 1px 0 var(--text-edge-color);
 }
-.original-tab.export { /* No text-shadow by default, applied if needed by JS or parent */
-    font-weight: normal; font-size: 0.88em; color: #555; margin-left: 6px;
-    text-shadow: -1px -1px 0 var(--text-edge-color), 1px -1px 0 var(--text-edge-color), -1px 1px 0 var(--text-edge-color), 1px 1px 0 var(--text-edge-color);
-}
-.tab-name-below-icon.export {
-    display: none; font-size: 0.8em; color: #666; margin-bottom: 2px;
-    text-shadow: -1px -1px 0 var(--text-edge-color), 1px -1px 0 var(--text-edge-color), -1px 1px 0 var(--text-edge-color), 1px 1px 0 var(--text-edge-color);
-}
+.speaker-name-default.export { display: block; font-weight: bold; margin-bottom: 4px; font-size: 0.9em; }
+.original-tab.export { font-weight: normal; font-size: 0.88em; color: #555; margin-left: 6px; text-shadow: -1px -1px 0 var(--text-edge-color), 1px -1px 0 var(--text-edge-color), -1px 1px 0 var(--text-edge-color), 1px 1px 0 var(--text-edge-color); }
+.tab-name-below-icon.export { display: none; font-size: 0.8em; color: #666; margin-bottom: 2px; text-shadow: -1px -1px 0 var(--text-edge-color), 1px -1px 0 var(--text-edge-color), -1px 1px 0 var(--text-edge-color), 1px 1px 0 var(--text-edge-color); }
 .speaker-name-below-icon.export {
     display: none; font-size: 0.85em; font-weight: bold;
     text-shadow: -1px -1px 0 var(--text-edge-color), 1px -1px 0 var(--text-edge-color), -1px 1px 0 var(--text-edge-color), 1px 1px 0 var(--text-edge-color), -1.5px -1.5px 0 var(--text-edge-color), 1.5px -1.5px 0 var(--text-edge-color), -1.5px 1.5px 0 var(--text-edge-color), 1.5px 1.5px 0 var(--text-edge-color);
@@ -2367,19 +2385,9 @@ h1 {
 }
 .bubble.export a { color: #0066cc; text-decoration: underline; }
 .bubble.export a:hover { color: #004c99; text-decoration: none; }
-
-/* Narration Display */
-.narration-tab {
-    font-size: 0.8em; color: #666; margin-right: 0.5em;
-    text-shadow: -1px -1px 0 var(--text-edge-color), 1px -1px 0 var(--text-edge-color), -1px 1px 0 var(--text-edge-color), 1px 1px 0 var(--text-edge-color);
-}
-.narration-speaker {
-    font-weight: bold; margin-right: 0.25em;
-    text-shadow: -1px -1px 0 var(--text-edge-color), 1px -1px 0 var(--text-edge-color), -1px 1px 0 var(--text-edge-color), 1px 1px 0 var(--text-edge-color);
-}
-.narration-message { display: inline; } /* Changed to inline */
-
-/* Name Below Icon Active Styles */
+.narration-tab { font-size: 0.8em; color: #666; margin-right: 0.5em; text-shadow: -1px -1px 0 var(--text-edge-color), 1px -1px 0 var(--text-edge-color), -1px 1px 0 var(--text-edge-color), 1px 1px 0 var(--text-edge-color); }
+.narration-speaker { font-weight: bold; margin-right: 0.25em; }
+.narration-message { display: inline; }
 body.name-below-icon-active .icon-container.export { margin-bottom: 1.8em; overflow: visible; }
 body.name-below-icon-active .speaker-name-default.export { display: none; }
 body.name-below-icon-active .tab-name-below-icon.export { display: block; }
@@ -2387,39 +2395,14 @@ body.name-below-icon-active .speaker-name-below-icon.export { display: block; }
 body.name-below-icon-active .bubble.export.bubble-left { margin-left: 0; }
 body.name-below-icon-active .bubble.export.bubble-left::before { left: -8px; }
 body.name-below-icon-active .message-container.export.align-right .bubble.export.bubble-left { margin-right: 0; }
-
-/* Inserted Image Styling */
 .inserted-image-container.export { text-align: center; }
-.inserted-image.export {
-    max-width: 85%; max-height: 550px; border-radius: 6px;
-    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15); display: block; margin: 0 auto;
-}
-.image-caption.export {
-    font-size: 0.9em; color: #444; margin-top: 6px; padding: 0 5%; line-height: 1.4;
-    text-shadow: -1px -1px 0 var(--text-edge-color), 1px -1px 0 var(--text-edge-color), -1px 1px 0 var(--text-edge-color), 1px 1px 0 var(--text-edge-color);
-}
-.image-error-placeholder.export {
-    color: #d9534f; font-size: 0.9em; font-weight: bold; margin-top: 8px;
-    padding: 5px; background-color: #f2dede; border: 1px solid #ebccd1;
-    border-radius: 4px; display: inline-block;
-}
-
+.inserted-image.export { max-width: 85%; max-height: 550px; border-radius: 6px; box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15); display: block; margin: 0 auto; }
+.image-caption.export { font-size: 0.9em; color: #444; margin-top: 6px; padding: 0 5%; line-height: 1.4; text-shadow: -1px -1px 0 var(--text-edge-color), 1px -1px 0 var(--text-edge-color), -1px 1px 0 var(--text-edge-color), 1px 1px 0 var(--text-edge-color); }
+.image-error-placeholder.export { color: #d9534f; font-size: 0.9em; font-weight: bold; margin-top: 8px; padding: 5px; background-color: #f2dede; border: 1px solid #ebccd1; border-radius: 4px; display: inline-block; }
 .tab-separator.export { border: 0; border-top: 2px dashed #cccccc; margin: 25px 5%; display: block; }
-
-/* Error Message Styling */
-.error-message.export {
-    background-color: #fff3cd; border: 1px solid #ffeeba; color: #856404;
-    padding: 10px 15px; border-radius: 4px; margin: 15px 0; font-size: 0.9em;
-}
-.error-message.export strong { font-weight: bold; }
-.error-message.export small { color: #66512c; display: block; margin-top: 4px; }
+.error-message.export { background-color: #fff3cd; border: 1px solid #ffeeba; color: #856404; padding: 10px 15px; border-radius: 4px; margin: 15px 0; font-size: 0.9em; }
 .empty-log-message.export { text-align: center; color: #666; font-style: italic; padding: 30px; }
-.export-error {
-    color: red; font-weight: bold; text-align: center; margin: 10px;
-    padding: 5px; border: 1px solid red; background-color: #ffeeee;
-}
-
-/* Heading Styles */
+.export-error { color: red; font-weight: bold; text-align: center; margin: 10px; padding: 5px; border: 1px solid red; background-color: #ffeeee; }
 .heading-item.export { margin: 12px 0 8px 0; padding: 5px 0; font-weight: bold; }
 .heading-item.export.level-1 { font-size: 1.4em; border-bottom: 2px solid #3498db; margin-top: 20px; padding-bottom: 8px;}
 .heading-item.export.level-2 { font-size: 1.2em; border-bottom: 1px solid #95a5a6; margin-top: 15px; padding-bottom: 6px;}
@@ -2427,35 +2410,14 @@ body.name-below-icon-active .message-container.export.align-right .bubble.export
 .heading-item.export.level-4 { font-size: 1.0em; margin-top: 8px; padding-bottom: 3px; color: #555; }
 .heading-item.export.level-5 { font-size: 0.95em; margin-top: 6px; padding-bottom: 2px; font-weight: normal; color: #666; }
 .heading-item.export.level-6 { font-size: 0.9em; margin-top: 5px; padding-bottom: 1px; font-weight: normal; color: #777; }
-
-/* Headings Navigation Panel for Export */
-.export-headings-nav {
-    position: fixed; left: -210px;
-    top: 10px; width: 200px; max-height: calc(100vh - 20px);
-    overflow-y: auto; background: #f9f9f9;
-    border: 1px solid #ddd; border-left:none; border-radius: 0 5px 5px 0;
-    padding: 10px; z-index: 1000; font-size: 0.9em;
-    transition: left 0.3s ease, box-shadow 0.3s ease; box-shadow: 2px 0 5px rgba(0,0,0,0.1);
-}
+.export-headings-nav { position: fixed; left: -210px; top: 10px; width: 200px; max-height: calc(100vh - 20px); overflow-y: auto; background: #f9f9f9; border: 1px solid #ddd; border-left:none; border-radius: 0 5px 5px 0; padding: 10px; z-index: 1000; font-size: 0.9em; transition: left 0.3s ease, box-shadow 0.3s ease; box-shadow: 2px 0 5px rgba(0,0,0,0.1); }
 .export-headings-nav.open { left: 0px !important; box-shadow: 2px 0 10px rgba(0,0,0,0.2); }
-.export-headings-nav button#export-toggle-headings-nav {
-    position: absolute; left: 100%; top: 0;
-    background: #3498db; color: white; border: none;
-    padding: 10px 5px; border-radius: 0 4px 4px 0; cursor: pointer;
-    font-size: 0.8em; writing-mode: vertical-rl; text-orientation: mixed;
-    z-index:1; transition: background-color 0.2s;
-}
+.export-headings-nav button#export-toggle-headings-nav { position: absolute; left: 100%; top: 0; background: #3498db; color: white; border: none; padding: 10px 5px; border-radius: 0 4px 4px 0; cursor: pointer; font-size: 0.8em; writing-mode: vertical-rl; text-orientation: mixed; z-index:1; transition: background-color 0.2s; }
 .export-headings-nav button#export-toggle-headings-nav:hover { background: #2980b9; }
 .export-headings-nav .nav-content { padding: 5px; }
-.export-headings-nav h5 {
-    margin-top: 0; margin-bottom: 8px; font-size: 1.1em;
-    border-bottom: 1px solid #eee; padding-bottom: 5px;
-}
+.export-headings-nav h5 { margin-top: 0; margin-bottom: 8px; font-size: 1.1em; border-bottom: 1px solid #eee; padding-bottom: 5px; }
 .export-headings-nav ul { list-style: none; padding: 0; margin: 0; }
-.export-headings-nav li a {
-    text-decoration: none; color: #337ab7; display: block; padding: 4px 0;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-radius: 2px;
-}
+.export-headings-nav li a { text-decoration: none; color: #337ab7; display: block; padding: 4px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-radius: 2px; }
 .export-headings-nav li a:hover { color: #23527c; background: #eee; }
 .export-headings-nav li.level-1 a { padding-left: 0px; font-weight: bold; }
 .export-headings-nav li.level-2 a { padding-left: 10px; }
@@ -2463,20 +2425,14 @@ body.name-below-icon-active .message-container.export.align-right .bubble.export
 .export-headings-nav li.level-4 a { padding-left: 30px; font-size: 0.9em; }
 .export-headings-nav li.level-5 a { padding-left: 40px; font-size: 0.85em; }
 .export-headings-nav li.level-6 a { padding-left: 50px; font-size: 0.85em; }
-
 @media (max-width: 768px) {
-    body.export-body {
-        padding: 0; /* Padding is on container */
-        font-size: ${Math.max(14, fontSize - 1)}px;
-        margin-left: 0 !important;
-    }
-    .log-export-container { padding: 15px; }
+    body.export-body { padding: 0; font-size: ${Math.max(14, fontSize - 1)}px; margin-left: 0 !important; }
+    .log-export-container { padding: 15px; margin: 10px; }
     h1 { font-size: 1.5em; margin-bottom: 20px; }
     .filter-controls.export { flex-direction: column; align-items: stretch; }
     .filter-section { flex-direction: column; align-items: flex-start; width: 100%; }
     .tab-nav.export { justify-content: center; }
     .speaker-filter.export { width: 100%; }
-
     .icon-container.export { width: ${responsiveIconSize}px; height: ${responsiveIconSize}px; margin-right: 10px; }
     .icon-placeholder.export { line-height: ${responsivePlaceholderLineHeight}px; font-size: ${responsivePlaceholderFontSize}px; }
     .bubble.export { padding: 8px 12px; }
@@ -2490,11 +2446,7 @@ body.name-below-icon-active .message-container.export.align-right .bubble.export
     .inserted-image.export { max-width: 95%; max-height: 400px; }
     .image-caption.export { font-size: 0.85em; padding: 0 2%; }
     .tab-separator.export { margin: 20px 3%; }
-
-    .export-headings-nav {
-        width: 180px;
-        left: -190px;
-    }
+    .export-headings-nav { width: 180px; left: -190px; }
     .export-headings-nav.open { left: 0px !important; }
     .export-headings-nav button#export-toggle-headings-nav { padding: 8px 4px;}
 }
@@ -2527,17 +2479,15 @@ body.name-below-icon-active .message-container.export.align-right .bubble.export
       fontSizeSlider.addEventListener('input', () => { fontSizeValueSpan.textContent = fontSizeSlider.value; });
       iconSizeSlider.addEventListener('input', () => { iconSizeValueSpan.textContent = iconSizeSlider.value; });
       bubbleWidthSlider.addEventListener('input', () => { bubbleWidthValueSpan.textContent = bubbleWidthSlider.value; });
-      logHeightSlider.addEventListener('input', () => { const newHeight = logHeightSlider.value; logHeightValueSpan.textContent = newHeight; });
+      logHeightSlider.addEventListener('input', () => { logHeightValueSpan.textContent = logHeightSlider.value; });
 
       const sliderChangeApply = () => { if(!applyCustomizationButton.disabled) applyCustomization();};
       fontSizeSlider.addEventListener('change', sliderChangeApply);
       iconSizeSlider.addEventListener('change', sliderChangeApply);
       bubbleWidthSlider.addEventListener('change', sliderChangeApply);
       logHeightSlider.addEventListener('change', () => {
-          const newHeight = logHeightSlider.value;
-          logDisplayDiv.style.height = `${newHeight}px`;
-          customizationSettings.logDisplayHeight = parseInt(newHeight, 10);
-          // No applyCustomization() here, it's applied via button or other changes
+          customizationSettings.logDisplayHeight = parseInt(logHeightSlider.value, 10);
+          logDisplayDiv.style.height = `${customizationSettings.logDisplayHeight}px`;
       });
 
       nameBelowIconToggle.addEventListener('change', applyCustomization);
@@ -2547,9 +2497,9 @@ body.name-below-icon-active .message-container.export.align-right .bubble.export
       backgroundColorInput.addEventListener('change', applyCustomization);
       skipDeleteConfirmToggle.addEventListener('change', applyCustomization);
       baseTextColorInput.addEventListener('change', applyCustomization);
-      textEdgeColorInput.addEventListener('change', applyCustomization); // New
-      backgroundImageInput.addEventListener('change', handleBackgroundImageUpload); // New
-      clearBackgroundImageButton.addEventListener('click', clearBackgroundImage); // New
+      textEdgeColorInput.addEventListener('change', applyCustomization);
+      backgroundImageInput.addEventListener('change', handleBackgroundImageUpload);
+      clearBackgroundImageButton.addEventListener('click', clearBackgroundImage);
 
 
       switchSettingsTab('settings'); hideLoading(); disableControls(); updateHeadingsNav();
