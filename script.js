@@ -493,7 +493,7 @@
           if (typeof setting.customTextColor === 'undefined') setting.customTextColor = null;
 
           const count = speakerFrequencies[speaker] || 0;
-          const uniqueSpeakerIdSuffix = sanitizeForFilename(speaker);
+          const uniqueSpeakerIdSuffix = generateSafeIdSuffix(speaker);
 
           const container = document.createElement('div'); container.className = 'p-3 border rounded-md bg-white shadow-sm';
           const mainInfoDiv = document.createElement('div'); mainInfoDiv.className = 'flex items-center space-x-4 mb-2';
@@ -592,7 +592,13 @@
       });
       characterSettingsDiv.appendChild(fragment);
   }
-
+ 
+  function generateSafeIdSuffix(name) {
+      if (!name) return '';
+      // IDとして安全な文字列を生成するため、英数字とハイフン、アンダースコア以外を文字コード(U+XXXX)に置換
+      return String(name).replace(/[^a-zA-Z0-9_-]/g, c => `U${c.charCodeAt(0)}`);
+  }
+ 
   function populateExpressionList(listElement, speaker) {
        listElement.innerHTML = ''; const expressions = characterSettings[speaker]?.expressions || {}; const sortedNames = Object.keys(expressions).sort();
        if (sortedNames.length === 0) { listElement.innerHTML = '<p class="text-xs text-gray-500 italic">差分アイコン未登録</p>'; return; }
@@ -611,7 +617,7 @@
       const file = event.target.files?.[0]; if (!file) return;
       if (!file.type.startsWith('image/')) { alert('画像ファイルを選択してください。'); event.target.value = null; return; }
       if (file.size > MAX_FILE_SIZE_BYTES) { alert(`ファイルサイズが大きすぎます。${MAX_FILE_SIZE_MB}MB以下にしてください。`); event.target.value = null; return; }
-      const uniqueSpeakerIdSuffix = sanitizeForFilename(speaker); const imgPreview = document.getElementById(`icon-preview-${uniqueSpeakerIdSuffix}`);
+      const uniqueSpeakerIdSuffix = generateSafeIdSuffix(speaker); const imgPreview = document.getElementById(`icon-preview-${uniqueSpeakerIdSuffix}`);
       try {
           const dataUrl = await readFileAsDataURL(file); if (imgPreview) imgPreview.src = dataUrl;
           if (!characterSettings[speaker]) characterSettings[speaker] = { displayName: speaker, icon: null, expressions: {}, alignment: 'left', color: '#000000', customTextColor: null, isNew: true };
@@ -625,7 +631,7 @@
 
   async function handleAddExpressionFile() {
        const { speaker, inputElement } = expressionAddContext; if (!speaker || !inputElement || !inputElement.files || inputElement.files.length === 0) { expressionAddContext = { speaker: null, inputElement: null }; return; }
-       const file = inputElement.files[0]; const uniqueSpeakerIdSuffix = sanitizeForFilename(speaker); const nameInput = document.getElementById(`exp-name-input-${uniqueSpeakerIdSuffix}`); const expressionName = nameInput ? nameInput.value.trim() : '';
+       const file = inputElement.files[0]; const uniqueSpeakerIdSuffix = generateSafeIdSuffix(speaker); const nameInput = document.getElementById(`exp-name-input-${uniqueSpeakerIdSuffix}`); const expressionName = nameInput ? nameInput.value.trim() : '';
        const currentSpeaker = speaker; if (inputElement) inputElement.value = null; expressionAddContext = { speaker: null, inputElement: null };
        if (!expressionName) { alert('差分名を入力してください。'); return; } if (characterSettings[currentSpeaker]?.expressions?.[expressionName]) { alert(`差分名「${expressionName}」は既に使用されています。`); return; }
        if (!file.type.startsWith('image/')) { alert('画像ファイルを選択してください。'); return; } if (file.size > MAX_FILE_SIZE_BYTES) { alert(`ファイルサイズが大きすぎます。${MAX_FILE_SIZE_MB}MB以下にしてください。`); return; }
@@ -659,7 +665,7 @@
            delete expressionAliasMap[speaker][expressionName];
        }
        const uploadKey = `exp_${speaker}_${expressionName}`; if (uploadedFiles[uploadKey]) delete uploadedFiles[uploadKey];
-       const uniqueSpeakerIdSuffix = sanitizeForFilename(speaker); const expressionListDiv = document.getElementById(`expressions-${uniqueSpeakerIdSuffix}`)?.querySelector('.space-y-1');
+       const uniqueSpeakerIdSuffix = generateSafeIdSuffix(speaker); const expressionListDiv = document.getElementById(`expressions-${uniqueSpeakerIdSuffix}`)?.querySelector('.space-y-1');
        if (expressionListDiv) populateExpressionList(expressionListDiv, speaker);
 
        displayLogData.forEach(item => {
