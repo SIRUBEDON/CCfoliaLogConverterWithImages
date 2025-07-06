@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-Q7E160JNKC"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+
+      gtag('config', 'G-Q7E160JNKC');
+    </script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ココフォリア/Tekeyログ整形ツール(画像埋め込み機能付き)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Noto+Sans+JP:wght@400;700&family=Noto+Serif+JP:wght@400;700&family=M+PLUS+Rounded+1c:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="bg-gray-100 p-4 md:p-8">
+    <!-- Headings Navigation Panel -->
+    <div id="headings-nav-panel" class="headings-nav-panel">
+        <button id="toggle-headings-nav-btn" class="toggle-headings-nav-btn" title="見出し一覧の表示/非表示">見出し</button>
+        <div class="headings-nav-content">
+            <h4>見出し一覧</h4>
+            <ul id="headings-list">
+                <li class="no-headings">見出しはありません</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="container mx-auto max-w-7xl bg-white rounded-lg shadow-xl p-5 md:p-8">
+        <h1 class="text-2xl md:text-3xl font-bold mb-4 text-center text-gray-800">ココフォリア/Tekeyログ整形ツール (画像埋め込み機能付き)</h1>
+        <div class="mb-6 p-4 border border-blue-200 rounded-lg bg-blue-50 text-sm text-blue-800">
+            <h3 class="font-semibold mb-1">使い方:</h3>
+            <ol class="list-decimal list-inside space-y-1">
+                <li>ログファイルまたはプロジェクト(.cclogproj)を読み込みます。</li>
+                <li>キャラクター設定タブで表示名/アイコン/向き/テーマ色/文字色/表情差分を設定、または新規キャラを追加します。</li>
+                <li>表示カスタマイズタブでフォントや色、基本文字色、表示モード、テキスト縁取り色、出力ログ背景画像などを調整します。</li>
+                <li>ログ表示エリアで、フィルタリング、画像挿入、見出し挿入(最大6レベル)、発言追加、個別メッセージの表示モード/アイコン/向き変更、メッセージ編集が可能です。</li>
+                <li>「プロジェクトを保存」で編集状態を保存、「整形済みログをZIPで出力」で共有用HTMLセットを出力します。</li>
+            </ol>
+        </div>
+
+        <!-- ======[ ファイル選択セクション ]====== -->
+        <div class="mb-6 p-4 border border-dashed border-gray-300 rounded-lg bg-gray-50">
+            <div class="flex flex-wrap items-center gap-x-6 gap-y-4">
+                <!-- ココフォリアログ選択 -->
+                <div>
+                    <label for="cocofolia-log-input" class="block text-lg font-semibold mb-1 text-gray-700">1a. ココフォリアログ:</label>
+                    <input type="file" id="cocofolia-log-input" accept=".html" class="visually-hidden">
+                    <label for="cocofolia-log-input" class="file-input-label">ココフォリアログ選択...</label>
+                </div>
+                <!-- Tekeyログ選択 -->
+                <div>
+                    <label for="tekey-log-input" class="block text-lg font-semibold mb-1 text-gray-700">1b. Tekeyログ:</label>
+                    <input type="file" id="tekey-log-input" accept=".html" class="visually-hidden">
+                    <label for="tekey-log-input" class="file-input-label bg-purple-600 hover:bg-purple-700">Tekeyログ選択...</label>
+                </div>
+                <!-- プロジェクト読み込み -->
+                <div class="border-l pl-4">
+                     <label for="project-load-input" class="block text-lg font-semibold mb-1 text-gray-700">1c. またはプロジェクト読込:</label>
+                    <input type="file" id="project-load-input" accept=".cclogproj" class="visually-hidden">
+                    <label for="project-load-input" class="file-input-label bg-green-600 hover:bg-green-700">プロジェクト(.cclogproj)選択...</label>
+                </div>
+            </div>
+            <div class="mt-3">
+                 <span id="file-info" class="text-sm font-medium text-blue-600 align-middle">ファイルが選択されていません</span>
+                 <span id="project-load-info" class="ml-3 text-sm font-medium text-green-600 align-middle"></span>
+            </div>
+             <p class="mt-2 text-sm text-gray-500">ココフォリアHTMLログ、Tekey HTMLログ (v2形式推奨)、または以前保存した整形プロジェクトファイル(.cclogproj)を選択してください。</p>
+        </div>
+        <!-- ================================ -->
+
+        <div class="mb-6">
+             <div class="border-b border-gray-200">
+                <nav class="-mb-px flex space-x-6" aria-label="Tabs">
+                    <button id="tab-btn-settings" data-tab-target="settings" class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm border-indigo-500 text-indigo-600" aria-current="page">キャラクター設定</button>
+                    <button id="tab-btn-customize" data-tab-target="customize" class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">表示カスタマイズ</button>
+                </nav>
+            </div>
+
+            <div id="settings-panel-settings" class="mt-4 p-4 border rounded-lg bg-gray-50" role="tabpanel" aria-labelledby="tab-btn-settings">
+                <div class="flex justify-between items-center mb-3">
+                    <h3 class="text-lg font-semibold text-gray-700">2. キャラクター設定:</h3>
+                    <button id="add-new-character-button" class="px-3 py-1.5 bg-green-500 text-white text-sm font-medium rounded-md hover:bg-green-600">新規キャラクター追加</button>
+                </div>
+                <p class="text-sm text-gray-600 mb-4">ログから検出された発言者名です。表示名/アイコン/向き/テーマ色/文字色/表情差分を設定してください。</p>
+                <div id="character-settings" class="space-y-4"><p class="text-gray-500 italic">ログファイルまたはプロジェクトファイルを読み込むと表示されます。</p></div>
+                 <button id="save-settings-button" class="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed" disabled>設定を一時保存(LocalStorage)</button>
+                 <button id="load-settings-button" class="mt-4 ml-2 px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed" disabled>設定を読み込み(LocalStorage)</button>
+                 <p class="text-xs text-gray-500 mt-1">※この保存/読込はプロジェクトファイルとは別です。</p>
+            </div>
+
+            <div id="settings-panel-customize" class="hidden mt-4 p-4 border rounded-lg bg-gray-50" role="tabpanel" aria-labelledby="tab-btn-customize">
+                 <h3 class="text-lg font-semibold mb-3 text-gray-700">表示カスタマイズ:</h3>
+                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div><label for="bubble-normal-color" class="block text-sm font-medium text-gray-700">左向き吹き出し色:</label><input type="color" id="bubble-normal-color" value="#ffffff" class="mt-1 block w-full h-8 rounded border border-gray-300 cursor-pointer p-0.5"></div>
+                    <div><label for="bubble-right-color" class="block text-sm font-medium text-gray-700">右向き吹き出し色:</label><input type="color" id="bubble-right-color" value="#dcf8c6" class="mt-1 block w-full h-8 rounded border border-gray-300 cursor-pointer p-0.5"></div>
+                    <div><label for="font-size-slider" class="block text-sm font-medium text-gray-700">フォントサイズ: <span id="font-size-value">16</span>px</label><input type="range" id="font-size-slider" min="10" max="24" value="16" class="mt-1 block w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"></div>
+                    <div><label for="background-color" class="block text-sm font-medium text-gray-700">ログエリア背景色:</label><input type="color" id="background-color" value="#f3f4f6" class="mt-1 block w-full h-8 rounded border border-gray-300 cursor-pointer p-0.5"></div>
+                    <div><label for="icon-size-slider" class="block text-sm font-medium text-gray-700">アイコンサイズ: <span id="icon-size-value">64</span>px</label><input type="range" id="icon-size-slider" min="24" max="128" value="64" class="mt-1 block w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"></div>
+                    <div class="md:col-span-1"><label for="bubble-width-slider" class="block text-sm font-medium text-gray-700">吹き出し最大幅: <span id="bubble-width-value">80</span>%</label><input type="range" id="bubble-width-slider" min="30" max="100" value="80" class="mt-1 block w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"></div>
+                    <div class="md:col-span-2"><label for="font-family-select" class="block text-sm font-medium text-gray-700">フォント:</label><select id="font-family-select" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 bg-white focus:border-indigo-500 focus:ring-indigo-500"><option value="font-noto-sans" selected>'Noto Sans JP' (推奨)</option><option value="font-inter">'Inter' (UI標準)</option><option value="font-noto-serif">'Noto Serif JP' (明朝)</option><option value="font-mplus-rounded">'M PLUS Rounded 1c' (丸ゴシック)</option><option value="font-system-sans">システム標準ゴシック</option><option value="font-system-serif">システム標準明朝</option><option value="font-system-mono">システム標準等幅</option></select></div>
+                    <div class="md:col-span-2"><label for="log-height-slider" class="block text-sm font-medium text-gray-700">ログ表示高さ: <span id="log-height-value">384</span>px</label><input type="range" id="log-height-slider" min="200" max="800" value="384" class="mt-1 block w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"></div>
+                    <div>
+                        <label for="base-text-color" class="block text-sm font-medium text-gray-700">基本文字色:</label>
+                        <input type="color" id="base-text-color" value="#333333" class="mt-1 block w-full h-8 rounded border border-gray-300 cursor-pointer p-0.5">
+                    </div>
+                    <div>
+                        <label for="text-edge-color-input" class="block text-sm font-medium text-gray-700">文字縁取り色:</label>
+                        <input type="color" id="text-edge-color-input" value="#ffffff" class="mt-1 block w-full h-8 rounded border border-gray-300 cursor-pointer p-0.5">
+                    </div>
+                    <div class="md:col-span-2">
+                        <label for="background-image-input-label" class="block text-sm font-medium text-gray-700">出力ログ背景画像:</label>
+                        <input type="file" id="background-image-input" accept="image/*" class="visually-hidden">
+                        <label for="background-image-input" id="background-image-input-label" class="file-input-label bg-teal-500 hover:bg-teal-600 text-sm py-1.5 px-3 mt-1">背景画像選択...</label>
+                        <button id="clear-background-image-button" class="ml-2 text-sm py-1 px-2 border border-gray-300 rounded-md hover:bg-gray-100">背景画像クリア</button>
+                        <img id="background-image-preview" src="" alt="背景画像プレビュー" class="mt-2">
+                        <p class="text-xs text-gray-500 mt-1">出力ZIPにのみ適用されます。ぼかしと明度補正がかかります。</p>
+                    </div>
+                    <div class="md:col-span-2 flex items-center space-x-2"><label for="name-below-icon-toggle" class="text-sm font-medium text-gray-700">名前をアイコン下に表示:</label><label class="switch"><input type="checkbox" id="name-below-icon-toggle"><span class="slider"></span></label></div>
+                    <div class="md:col-span-2 flex items-center space-x-2">
+                        <label for="skip-delete-confirm-toggle" class="text-sm font-medium text-gray-700">削除確認を省略:</label>
+                        <label class="switch">
+                            <input type="checkbox" id="skip-delete-confirm-toggle">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                 </div>
+                 <button id="apply-customization" class="mt-4 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600">カスタマイズ適用</button>
+                 <button id="reset-customization" class="mt-4 ml-2 px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600">リセット</button>
+            </div>
+        </div>
+
+        <div class="mb-6">
+            <h3 class="text-lg font-semibold mb-3 text-gray-700">3. ログ表示:</h3>
+            <div class="mb-4 p-3 border rounded-lg bg-gray-50 flex flex-wrap items-center justify-between gap-4">
+                 <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+                     <div><label for="speaker-filter" class="block text-sm font-medium text-gray-700">発言者:</label><select id="speaker-filter" class="mt-1 block w-full md:w-auto rounded-md border-gray-300 shadow-sm p-2 text-sm bg-white focus:border-indigo-500 focus:ring-indigo-500" disabled><option value="all">すべての発言者</option></select></div>
+                     <div><span class="block text-sm font-medium text-gray-700">タブ:</span><nav id="log-tabs" class="mt-1 -mb-px flex space-x-2 overflow-x-auto pb-1" aria-label="Log Tabs"><span class="whitespace-nowrap py-2 px-1 text-gray-500 text-sm italic">ログ読込中</span></nav></div>
+                 </div>
+                 <div><button id="add-header-image-button" class="mt-2 md:mt-0 px-3 py-1.5 bg-teal-500 text-white text-sm font-medium rounded-md hover:bg-teal-600 disabled:opacity-50 disabled:cursor-not-allowed" disabled>先頭に画像を追加</button></div>
+            </div>
+
+            <div id="log-display" class="overflow-y-auto border border-gray-300 rounded-lg p-4 bg-white space-y-1 font-noto-sans" style="--bubble-max-width: 80%; --bubble-bg-color: #ffffff; --bubble-right-bg-color: #dcf8c6; --bubble-arrow-color: #ffffff; --bubble-right-arrow-color: #dcf8c6; --icon-size: 64px;" aria-live="polite">
+                <p class="text-gray-500 text-center italic">ここに整形されたログが表示されます。</p>
+            </div>
+        </div>
+
+        <div class="mt-8 text-center">
+             <h3 class="text-lg font-semibold mb-3 text-gray-700">4. 保存 / エクスポート:</h3>
+             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4 max-w-lg mx-auto text-left">
+                 <div>
+                     <label for="export-html-title" class="block text-sm font-medium text-gray-700">HTMLタイトル / プロジェクト名:</label>
+                     <input type="text" id="export-html-title" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-1.5 focus:border-indigo-500 focus:ring-indigo-500 text-sm" placeholder="例: セッションログ" disabled>
+                 </div>
+                 <div>
+                     <label for="export-zip-filename" class="block text-sm font-medium text-gray-700">ZIPファイル名 / プロジェクトファイル名:</label>
+                     <input type="text" id="export-zip-filename" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-1.5 focus:border-indigo-500 focus:ring-indigo-500 text-sm" placeholder="例: log_export" disabled>
+                 </div>
+             </div>
+             <div class="flex flex-wrap justify-center items-center gap-4">
+                 <button id="save-project-button" class="px-6 py-3 bg-green-600 text-white font-semibold rounded-lg shadow hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed" disabled>プロジェクトを保存 (.cclogproj)</button>
+                 <button id="export-zip-button" class="px-6 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed" disabled>整形済みログをZIPで出力</button>
+             </div>
+             <p class="mt-3 text-sm text-red-600 bg-red-50 p-3 rounded-md border border-red-300">
+                 <strong>【重要】ファイルがブロックされる場合について:</strong><br>
+                 Windows Defenderなどのセキュリティ機能により、ダウンロードしたZIPファイルや展開後のHTMLファイルが「危険なファイル」としてブロックされることがあります。これは誤検知によるものであり、ファイル自体に問題はありません。<br>
+                 お手数ですが、以下の方法で対処してください。
+                 <ul class="list-disc list-inside mt-1 pl-2 text-xs">
+                     <li><strong>ZIPファイルの場合:</strong> 右クリック →「プロパティ」→「全般」タブ下部の「許可する」にチェック →「OK」。その後、展開してください。または、7-zipなどを使用してください。</li>
+                 </ul>
+             </p>
+             <p class="mt-2 text-sm text-gray-500">プロジェクトファイルには編集状態全体が保存されます。</p>
+             <p class="mt-2 text-sm text-gray-500">整形済みログZIPには、表示用のHTML/CSS/画像が含まれます。</p>
+             <p class="text-xs text-gray-500">（注意: Google Fontsはオフラインでは表示されません）</p>
+        </div>
+
+        <footer class="app-footer">
+            <h4>更新履歴</h4>
+            <ul>
+                 <li>2025/06/06: Tekeyログのタブ数問題修正、エクスポート時の画像名を英数字に変更 </li>
+                 <li>2025/05/31: 見出し・新規キャラ追加機能・向き変更・文字色変更機能・出力ログ背景画像設定、文字縁取り機能追加 </li>
+                 <li>2025/05/06: 先頭画像挿入機能、差分機能、プロジェクトのエクスポート・インポート機能追加、Tekeyログ読み込み機能追加</li>
+                 <li>2025/05/03: 公開</li>
+            </ul>
+            <div class="footer-credits">
+                作成者: しるべ (<a href="https://x.com/qxoiUioxp" target="_blank" rel="noopener noreferrer">@qxoiUioxp</a>)
+            </div>
+        </footer>
+    </div>
+
+    <!-- Hidden Inputs -->
+    <input type="file" id="insert-image-input" accept="image/*" class="visually-hidden">
+    <input type="file" id="message-icon-change-input" accept="image/*" class="visually-hidden">
+    <input type="file" id="expression-icon-input-generic-placeholder" accept="image/*" class="visually-hidden">
+    <input type="file" id="new-char-icon-modal-input" accept="image/*" class="visually-hidden"> <!-- For new character modal -->
+
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" aria-hidden="true" aria-label="処理中"><div class="loader"></div></div>
+
+    <!-- Icon Selection Dropdown Placeholder -->
+    <div id="icon-select-dropdown" class="icon-select-dropdown hidden"></div>
+
+    <!-- Generic Modal (used for Add Character, Add Chat, Add Heading) -->
+    <div id="generic-modal" class="modal hidden">
+        <div class="modal-content">
+            <span id="generic-modal-close-btn" class="close-modal-btn" title="閉じる">&times;</span>
+            <h3 id="generic-modal-title">タイトル</h3>
+            <div id="generic-modal-body">
+                <!-- Content will be injected by JavaScript -->
+            </div>
+            <div id="generic-modal-actions" class="modal-actions">
+                <button id="generic-modal-cancel-btn" class="btn-secondary">キャンセル</button>
+                <button id="generic-modal-confirm-btn" class="btn-primary">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js" defer></script>
+</body>
+</html>
