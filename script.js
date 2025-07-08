@@ -4,7 +4,7 @@
 
   // --- State Variables ---
   let displayLogData = []; // Holds the unified log data being edited
-  let characterSettings = {}; // { speakerName: { displayName, icon, expressions, alignment, color, customTextColor, isNew } }
+  let characterSettings = {}; // { speakerName: { displayName, icon, expressions, alignment, color, customTextColor, forceNarration, isNew } }
   let customizationSettings = {
       normalBubbleColor: '#ffffff', rightBubbleColor: '#dcf8c6',
       fontSize: 16, backgroundColor: '#f3f4f6',
@@ -19,6 +19,7 @@
    };
    let currentTabFilter = 'all';
    let currentSpeakerFilter = 'all';
+   let visibleTabsInAllMode = new Set();
    let uploadedFiles = {}; // key: File object (or Blob) for icons, images, background
    let isProcessingFile = false;
    let speakerFrequencies = {}; // For log-derived speakers
@@ -43,8 +44,8 @@
    const PROJECT_FILE_EXTENSION = '.cclogproj';
    const PROJECT_DATA_FILENAME = 'project_data.json';
    const PROJECT_IMAGES_FOLDER = 'images/';
-   const PROJECT_FILE_FORMAT_VERSION = '1.5'; // Updated version for new alias logic
-   const APP_VERSION = '10.6-alias'; // Updated version
+   const PROJECT_FILE_FORMAT_VERSION = '1.6'; // Updated version for new features
+   const APP_VERSION = '11.0-narration-filter'; // Updated version
 
   // --- DOM Elements ---
   const cocofoliaFileInput = document.getElementById('cocofolia-log-input');
@@ -55,6 +56,7 @@
   const characterSettingsDiv = document.getElementById('character-settings');
   const logTabsNav = document.getElementById('log-tabs');
   const speakerFilterSelect = document.getElementById('speaker-filter');
+  const allModeTabFilterDiv = document.getElementById('all-mode-tab-filter');
   const logDisplayDiv = document.getElementById('log-display');
   const exportButton = document.getElementById('export-zip-button');
   const saveProjectButton = document.getElementById('save-project-button');
@@ -108,7 +110,7 @@
   const newCharIconModalInput = document.getElementById('new-char-icon-modal-input');
 
   const PLACEHOLDER_ICON_URL = 'https://placehold.co/64x64/e0e0e0/757575?text=?';
-  const LOCALSTORAGE_SETTINGS_KEY = 'logToolSettings_v10.2';
+  const LOCALSTORAGE_SETTINGS_KEY = 'logToolSettings_v11.0';
   const LOCALSTORAGE_CUSTOMIZATION_KEY = 'logToolCustomization_v10.5';
   const FONT_CLASSES = [
        'font-inter', 'font-noto-sans', 'font-noto-serif',
@@ -291,6 +293,8 @@
        });
        if (uniqueTabsFound.size > 0 && !uniqueTabsFound.has('all')) uniqueTabsFound.add('all');
        else if (uniqueTabsFound.size === 0) uniqueTabsFound = new Set(['all', 'main']);
+       
+       visibleTabsInAllMode = new Set([...uniqueTabsFound].filter(t => t !== 'all'));
 
        displayLogData = parsedData.map(item => {
            if (item.type === 'message') {
@@ -325,13 +329,14 @@
        displayLogData = []; characterSettings = {};
        resetCustomizationDefaults();
        currentTabFilter = 'all'; currentSpeakerFilter = 'all'; uploadedFiles = {};
-       speakerFrequencies = {}; uniqueTabsFound = new Set(['all']);
+       speakerFrequencies = {}; uniqueTabsFound = new Set(['all']); visibleTabsInAllMode = new Set();
        nextUniqueId = 0; imageInsertTarget = { type: null, itemId: null}; actionTargetItemId = null; speakerDataForExport = {};
        messageIconChangeTargetId = null; expressionAddContext = { speaker: null, inputElement: null };
        logFileNameBase = 'session_log'; exportHtmlTitleInput.value = logFileNameBase; exportZipFilenameInput.value = logFileNameBase;
        projectLoadInfoSpan.textContent = ''; fileInfoSpan.textContent = 'ファイルが選択されていません';
        characterSettingsDiv.innerHTML = '<p class="text-gray-500 italic">ログファイルまたはプロジェクトファイルを読み込むと表示されます。</p>';
        logTabsNav.innerHTML = '<span class="whitespace-nowrap py-2 px-1 text-gray-500 text-sm italic">ログ読込中</span>';
+       allModeTabFilterDiv.innerHTML = ''; allModeTabFilterDiv.classList.add('hidden');
        speakerFilterSelect.innerHTML = '<option value="all">すべての発言者</option>';
        logDisplayDiv.innerHTML = '<p class="text-gray-500 text-center italic">ここに整形されたログが表示されます。</p>';
        speakerFilenameAlias = {}; nextAliasId = 0;
@@ -446,6 +451,7 @@
                   alignment: 'left',
                   color: initialCharColor,
                   customTextColor: null,
+                  forceNarration: false,
                   isNew: false
               };
               existingSpeakers.add(speaker);
@@ -458,6 +464,7 @@
                characterSettings[speaker].color = firstMessage?.color || '#000000';
           }
           if (typeof characterSettings[speaker].customTextColor === 'undefined') characterSettings[speaker].customTextColor = null;
+          if (typeof characterSettings[speaker].forceNarration === 'undefined') characterSettings[speaker].forceNarration = false;
           if (typeof characterSettings[speaker].isNew === 'undefined') characterSettings[speaker].isNew = !speakerFrequencies[speaker];
       });
   }
@@ -469,7 +476,8 @@
                 displayName: setting.displayName,
                 alignment: setting.alignment || 'left',
                 color: setting.color || '#000000',
-                customTextColor: setting.customTextColor
+                customTextColor: setting.customTextColor,
+                forceNarration: setting.forceNarration || false
             };
         }
     });
@@ -486,11 +494,13 @@
       const fragment = document.createDocumentFragment();
       sortedSpeakers.forEach(speaker => {
           if (!characterSettings[speaker]) {
-             characterSettings[speaker] = { displayName: speaker, icon: null, expressions: {}, alignment: 'left', color: '#000000', customTextColor: null, isNew: !speakerFrequencies[speaker] };
+             characterSettings[speaker] = { displayName: speaker, icon: null, expressions: {}, alignment: 'left', color: '#000000', customTextColor: null, forceNarration: false, isNew: !speakerFrequencies[speaker] };
           }
           const setting = characterSettings[speaker];
           if (!setting.color) setting.color = '#000000';
           if (typeof setting.customTextColor === 'undefined') setting.customTextColor = null;
+          if (typeof setting.forceNarration === 'undefined') setting.forceNarration = false;
+
 
           const count = speakerFrequencies[speaker] || 0;
           const uniqueSpeakerIdSuffix = generateSafeIdSuffix(speaker);
@@ -513,7 +523,10 @@
           const nameInput = document.createElement('input'); nameInput.type = 'text'; nameInput.id = `name-input-${uniqueSpeakerIdSuffix}`; nameInput.value = setting.displayName; nameInput.className = 'block w-full rounded-md border-gray-300 shadow-sm p-1.5 focus:border-indigo-500 focus:ring-indigo-500 text-sm mb-2'; nameInput.setAttribute('aria-label', `${escapeHtml(speaker)} の表示名`);
           nameInput.addEventListener('input', (e) => { const newDisplayName = e.target.value; if (characterSettings[speaker]) { characterSettings[speaker].displayName = newDisplayName; updateSpeakerFilterOptionText(speaker, newDisplayName); updateSpeakerDataForExport(); renderLog(); } });
 
-          const alignmentDiv = document.createElement('div'); alignmentDiv.className = 'flex items-center space-x-2 mt-1';
+          const controlsGrid = document.createElement('div');
+          controlsGrid.className = 'grid grid-cols-2 gap-x-4 gap-y-2';
+
+          const alignmentDiv = document.createElement('div'); alignmentDiv.className = 'flex items-center space-x-2';
           const alignmentLabel = document.createElement('span'); alignmentLabel.className = 'text-sm font-medium text-gray-700'; alignmentLabel.textContent = '向き:';
           const alignmentSelect = document.createElement('select'); alignmentSelect.id = `alignment-select-${uniqueSpeakerIdSuffix}`;
           alignmentSelect.className = 'text-sm p-1 border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500';
@@ -527,8 +540,8 @@
           alignmentSelect.addEventListener('change', (e) => { if(characterSettings[speaker]) { characterSettings[speaker].alignment = e.target.value; updateSpeakerDataForExport(); renderLog(); }});
           alignmentDiv.appendChild(alignmentLabel); alignmentDiv.appendChild(alignmentSelect);
 
-          const charColorDiv = document.createElement('div'); charColorDiv.className = 'flex items-center space-x-2 mt-1';
-          const charColorLabel = document.createElement('span'); charColorLabel.className = 'text-sm font-medium text-gray-700'; charColorLabel.textContent = 'キャラテーマ色:';
+          const charColorDiv = document.createElement('div'); charColorDiv.className = 'flex items-center space-x-2';
+          const charColorLabel = document.createElement('span'); charColorLabel.className = 'text-sm font-medium text-gray-700'; charColorLabel.textContent = 'テーマ色:';
           const charColorInput = document.createElement('input'); charColorInput.type = 'color'; charColorInput.id = `char-color-input-${uniqueSpeakerIdSuffix}`;
           charColorInput.value = setting.color || '#000000';
           charColorInput.className = 'p-0.5 h-7 w-10 border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500';
@@ -538,7 +551,7 @@
           });
           charColorDiv.appendChild(charColorLabel); charColorDiv.appendChild(charColorInput);
 
-          const charTextColorDiv = document.createElement('div'); charTextColorDiv.className = 'flex items-center space-x-2 mt-1';
+          const charTextColorDiv = document.createElement('div'); charTextColorDiv.className = 'flex items-center space-x-2';
           const charTextColorLabel = document.createElement('span'); charTextColorLabel.className = 'text-sm font-medium text-gray-700'; charTextColorLabel.textContent = '文字色:';
           const charTextColorInput = document.createElement('input'); charTextColorInput.type = 'color'; charTextColorInput.id = `char-text-color-input-${uniqueSpeakerIdSuffix}`;
           charTextColorInput.value = setting.customTextColor || customizationSettings.baseTextColor;
@@ -567,9 +580,39 @@
           charTextColorDiv.appendChild(charTextColorInput);
           charTextColorDiv.appendChild(resetTextColorButton);
 
-          nameAndControlsDiv.appendChild(nameLabel); nameAndControlsDiv.appendChild(nameInput); nameAndControlsDiv.appendChild(alignmentDiv);
-          nameAndControlsDiv.appendChild(charColorDiv);
-          nameAndControlsDiv.appendChild(charTextColorDiv);
+          const forceNarrationDiv = document.createElement('div');
+          forceNarrationDiv.className = 'flex items-center space-x-2';
+          const forceNarrationLabel = document.createElement('label');
+          forceNarrationLabel.htmlFor = `force-narration-toggle-${uniqueSpeakerIdSuffix}`;
+          forceNarrationLabel.className = 'text-sm font-medium text-gray-700';
+          forceNarrationLabel.textContent = '常に地の文:';
+          const switchLabel = document.createElement('label');
+          switchLabel.className = 'switch';
+          const forceNarrationInput = document.createElement('input');
+          forceNarrationInput.type = 'checkbox';
+          forceNarrationInput.id = `force-narration-toggle-${uniqueSpeakerIdSuffix}`;
+          forceNarrationInput.checked = setting.forceNarration;
+          forceNarrationInput.addEventListener('change', (e) => {
+              if (characterSettings[speaker]) {
+                  characterSettings[speaker].forceNarration = e.target.checked;
+                  updateSpeakerDataForExport();
+                  renderLog();
+              }
+          });
+          const sliderSpan = document.createElement('span');
+          sliderSpan.className = 'slider';
+          switchLabel.appendChild(forceNarrationInput);
+          switchLabel.appendChild(sliderSpan);
+          forceNarrationDiv.appendChild(forceNarrationLabel);
+          forceNarrationDiv.appendChild(switchLabel);
+
+
+          controlsGrid.appendChild(alignmentDiv);
+          controlsGrid.appendChild(charColorDiv);
+          controlsGrid.appendChild(charTextColorDiv);
+          controlsGrid.appendChild(forceNarrationDiv);
+
+          nameAndControlsDiv.appendChild(nameLabel); nameAndControlsDiv.appendChild(nameInput); nameAndControlsDiv.appendChild(controlsGrid);
 
           mainInfoDiv.appendChild(iconDiv); mainInfoDiv.appendChild(nameAndControlsDiv);
           container.appendChild(mainInfoDiv);
@@ -620,7 +663,7 @@
       const uniqueSpeakerIdSuffix = generateSafeIdSuffix(speaker); const imgPreview = document.getElementById(`icon-preview-${uniqueSpeakerIdSuffix}`);
       try {
           const dataUrl = await readFileAsDataURL(file); if (imgPreview) imgPreview.src = dataUrl;
-          if (!characterSettings[speaker]) characterSettings[speaker] = { displayName: speaker, icon: null, expressions: {}, alignment: 'left', color: '#000000', customTextColor: null, isNew: true };
+          if (!characterSettings[speaker]) characterSettings[speaker] = { displayName: speaker, icon: null, expressions: {}, alignment: 'left', color: '#000000', customTextColor: null, forceNarration: false, isNew: true };
           characterSettings[speaker].icon = dataUrl;
           const uploadKey = characterSettings[speaker].isNew ? `newchar_${speaker}` : speaker;
           uploadedFiles[uploadKey] = file;
@@ -638,7 +681,7 @@
        showLoading();
        try {
            const dataUrl = await readFileAsDataURL(file);
-           if (!characterSettings[currentSpeaker]) characterSettings[currentSpeaker] = { displayName: currentSpeaker, icon: null, expressions: {}, alignment: 'left', color: '#000000', customTextColor: null, isNew: true };
+           if (!characterSettings[currentSpeaker]) characterSettings[currentSpeaker] = { displayName: currentSpeaker, icon: null, expressions: {}, alignment: 'left', color: '#000000', customTextColor: null, forceNarration: false, isNew: true };
            if (!characterSettings[currentSpeaker].expressions) characterSettings[currentSpeaker].expressions = {};
            characterSettings[currentSpeaker].expressions[expressionName] = dataUrl;
 
@@ -691,6 +734,7 @@
                    alignment: setting.alignment || 'left',
                    color: setting.color || '#000000',
                    customTextColor: setting.customTextColor,
+                   forceNarration: !!setting.forceNarration,
                    isNew: !!setting.isNew
                 };
            }
@@ -707,13 +751,14 @@
           const loadedSettings = JSON.parse(savedSettingsJson); let settingsAppliedCount = 0;
            Object.keys(speakerFrequencies).forEach(speaker => {
               if (loadedSettings[speaker]) {
-                  if (!characterSettings[speaker]) characterSettings[speaker] = { displayName: speaker, icon: null, expressions: {}, alignment: 'left', color: '#000000', customTextColor: null, isNew: false };
+                  if (!characterSettings[speaker]) characterSettings[speaker] = { displayName: speaker, icon: null, expressions: {}, alignment: 'left', color: '#000000', customTextColor: null, forceNarration: false, isNew: false };
                   characterSettings[speaker].displayName = loadedSettings[speaker].displayName;
                   characterSettings[speaker].icon = loadedSettings[speaker].icon || null;
                   characterSettings[speaker].expressions = loadedSettings[speaker].expressions || {};
                   characterSettings[speaker].alignment = loadedSettings[speaker].alignment || 'left';
                   characterSettings[speaker].color = loadedSettings[speaker].color || '#000000';
                   characterSettings[speaker].customTextColor = loadedSettings[speaker].customTextColor || null;
+                  characterSettings[speaker].forceNarration = loadedSettings[speaker].forceNarration || false;
                   characterSettings[speaker].isNew = false;
                   settingsAppliedCount++;
               }
@@ -727,6 +772,7 @@
                       alignment: loadedSettings[speaker].alignment || 'left',
                       color: loadedSettings[speaker].color || '#000000',
                       customTextColor: loadedSettings[speaker].customTextColor || null,
+                      forceNarration: loadedSettings[speaker].forceNarration || false,
                       isNew: true
                   };
                   settingsAppliedCount++;
@@ -736,6 +782,9 @@
                   }
                   if (typeof loadedSettings[speaker].customTextColor !== 'undefined' && characterSettings[speaker]) {
                        characterSettings[speaker].customTextColor = loadedSettings[speaker].customTextColor;
+                  }
+                   if (typeof loadedSettings[speaker].forceNarration !== 'undefined' && characterSettings[speaker]) {
+                       characterSettings[speaker].forceNarration = loadedSettings[speaker].forceNarration;
                   }
               }
           });
@@ -779,6 +828,10 @@
               <input type="color" id="new-char-text-color" value="${customizationSettings.baseTextColor}">
               <button type="button" id="reset-new-char-text-color" class="text-xs ml-2 p-1 border rounded hover:bg-gray-100">基本色に戻す</button>
           </div>
+          <div class="modal-form-group flex items-center space-x-2">
+              <label for="new-char-force-narration" class="text-sm font-medium text-gray-700">常に地の文で表示:</label>
+              <label class="switch"><input type="checkbox" id="new-char-force-narration"><span class="slider"></span></label>
+          </div>
       `;
       document.getElementById('new-char-icon-modal-input-actual').onchange = (e) => {
           const file = e.target.files[0];
@@ -805,6 +858,7 @@
       const alignment = document.getElementById('new-char-alignment').value;
       const themeColor = document.getElementById('new-char-theme-color').value;
       const textColorInput = document.getElementById('new-char-text-color');
+      const forceNarration = document.getElementById('new-char-force-narration').checked;
       let customTextColor = textColorInput.value;
       if (customTextColor === customizationSettings.baseTextColor) {
           customTextColor = null;
@@ -830,6 +884,7 @@
           alignment: alignment,
           color: themeColor,
           customTextColor: customTextColor,
+          forceNarration: forceNarration,
           isNew: true
       };
       if (iconFile) uploadedFiles[`newchar_${internalName}`] = iconFile;
@@ -1054,6 +1109,84 @@
           fragment.appendChild(button);
       });
       logTabsNav.appendChild(fragment); logTabsNav.setAttribute('role', 'tablist');
+      
+      handleTabChange(currentTabFilter); // To ensure 'all' mode filter UI is shown if needed
+  }
+  
+  function populateAllModeTabFilterUI() {
+    allModeTabFilterDiv.innerHTML = '';
+    
+    const container = document.createElement('div');
+    container.className = 'flex flex-wrap items-center gap-x-4 gap-y-2 w-full';
+
+    const title = document.createElement('span');
+    title.className = 'text-sm font-medium text-gray-700';
+    title.textContent = '表示タブ:';
+    container.appendChild(title);
+
+    const checkboxGroup = document.createElement('div');
+    checkboxGroup.className = 'flex flex-wrap gap-x-3 gap-y-1';
+    
+    const tabsToDisplay = [...uniqueTabsFound].filter(t => t !== 'all').sort((a, b) => a.localeCompare(b));
+
+    tabsToDisplay.forEach(tab => {
+        const checkboxId = `tab-checkbox-${generateSafeIdSuffix(tab)}`;
+        const wrapper = document.createElement('div');
+        wrapper.className = 'flex items-center';
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.id = checkboxId;
+        checkbox.value = tab;
+        checkbox.checked = visibleTabsInAllMode.has(tab);
+        checkbox.className = 'h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500';
+        checkbox.addEventListener('change', (e) => {
+            if (e.target.checked) {
+                visibleTabsInAllMode.add(tab);
+            } else {
+                visibleTabsInAllMode.delete(tab);
+            }
+            renderLog();
+        });
+
+        const label = document.createElement('label');
+        label.htmlFor = checkboxId;
+        label.textContent = escapeHtml(tab);
+        label.className = 'ml-2 block text-sm text-gray-900 cursor-pointer';
+
+        wrapper.appendChild(checkbox);
+        wrapper.appendChild(label);
+        checkboxGroup.appendChild(wrapper);
+    });
+    container.appendChild(checkboxGroup);
+
+    const buttonGroup = document.createElement('div');
+    buttonGroup.className = 'ml-auto flex gap-2';
+
+    const selectAllBtn = document.createElement('button');
+    selectAllBtn.textContent = '全選択';
+    selectAllBtn.className = 'text-xs px-2 py-1 border rounded hover:bg-gray-200';
+    selectAllBtn.onclick = () => {
+        tabsToDisplay.forEach(tab => visibleTabsInAllMode.add(tab));
+        populateAllModeTabFilterUI();
+        renderLog();
+    };
+
+    const deselectAllBtn = document.createElement('button');
+    deselectAllBtn.textContent = '全解除';
+    deselectAllBtn.className = 'text-xs px-2 py-1 border rounded hover:bg-gray-200';
+    deselectAllBtn.onclick = () => {
+        visibleTabsInAllMode.clear();
+        populateAllModeTabFilterUI();
+        renderLog();
+    };
+
+    buttonGroup.appendChild(selectAllBtn);
+    buttonGroup.appendChild(deselectAllBtn);
+    container.appendChild(buttonGroup);
+    
+    allModeTabFilterDiv.appendChild(container);
+    allModeTabFilterDiv.classList.remove('hidden');
   }
 
   function populateSpeakerFilterUI() {
@@ -1079,7 +1212,27 @@
       speakerFilterSelect.disabled = false;
   }
 
-  function handleTabChange(tabName) { if (currentTabFilter === tabName) return; currentTabFilter = tabName; const baseClasses = 'whitespace-nowrap py-2 px-3 border-b-2 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-indigo-500 transition-colors duration-150 ease-in-out'; const activeClasses = 'border-indigo-500 text-indigo-600'; const inactiveClasses = 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'; logTabsNav.querySelectorAll('button').forEach(button => { const isActive = button.dataset.tab === tabName; button.className = `${baseClasses} ${isActive ? activeClasses : inactiveClasses}`; button.setAttribute('aria-selected', isActive ? 'true' : 'false'); }); renderLog(); }
+  function handleTabChange(tabName) { 
+      if (currentTabFilter === tabName) return; 
+      currentTabFilter = tabName; 
+      const baseClasses = 'whitespace-nowrap py-2 px-3 border-b-2 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-indigo-500 transition-colors duration-150 ease-in-out'; 
+      const activeClasses = 'border-indigo-500 text-indigo-600'; 
+      const inactiveClasses = 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'; 
+      logTabsNav.querySelectorAll('button').forEach(button => { 
+          const isActive = button.dataset.tab === tabName; 
+          button.className = `${baseClasses} ${isActive ? activeClasses : inactiveClasses}`; 
+          button.setAttribute('aria-selected', isActive ? 'true' : 'false'); 
+      }); 
+
+      if (tabName === 'all' && uniqueTabsFound.size > 1) {
+          populateAllModeTabFilterUI();
+      } else {
+          allModeTabFilterDiv.classList.add('hidden');
+      }
+
+      renderLog(); 
+  }
+
   function handleSpeakerFilterChange() {
       const selectedValue = speakerFilterSelect.value;
       const newFilter = selectedValue === 'all' ? 'all' : Object.keys(characterSettings).find(sp => escapeCssSelector(sp) === selectedValue) ||
@@ -1109,20 +1262,41 @@
        logDisplayDiv.classList.toggle('name-below-icon-active', customizationSettings.nameBelowIconMode);
 
        let filteredItems = displayLogData.filter(item => {
-           if (item.type === 'image' && item.anchorId === HEADER_IMAGE_ANCHOR) return true;
-           if (item.type === 'error') return currentTabFilter === 'all' && currentSpeakerFilter === 'all';
+           let itemTab = null, itemSpeaker = null;
 
-           let itemTab = 'main', itemSpeaker = '不明';
-           if (item.type === 'message') { itemTab = item.tab || 'main'; itemSpeaker = item.speaker || '不明'; }
-           else if (item.type === 'image') { const anchorMsg = displayLogData.find(m => m.id === item.anchorId && m.type === 'message'); if (anchorMsg) { itemTab = anchorMsg.tab || 'main'; itemSpeaker = anchorMsg.speaker || '不明'; } else { return currentTabFilter === 'all' && currentSpeakerFilter === 'all'; } }
-           else if (item.type === 'heading') {
-                return true;
+           if (item.type === 'message') {
+               itemTab = item.tab || 'main';
+               itemSpeaker = item.speaker || '不明';
+           } else if (item.type === 'image') {
+               if (item.anchorId === HEADER_IMAGE_ANCHOR) return currentSpeakerFilter === 'all'; // Header images always visible unless speaker filter is on
+               const anchorMsg = displayLogData.find(m => m.id === item.anchorId && m.type === 'message');
+               if (anchorMsg) {
+                   itemTab = anchorMsg.tab || 'main';
+                   itemSpeaker = anchorMsg.speaker || '不明';
+               } else { // Orphaned image
+                   return currentTabFilter === 'all' && currentSpeakerFilter === 'all';
+               }
+           } else if (item.type === 'heading' || item.type === 'error') {
+               return currentSpeakerFilter === 'all'; // Headings/Errors only filtered by speaker
+           } else {
+               return false;
            }
-           else { return false; }
 
-           const tabMatch = currentTabFilter === 'all' || itemTab === currentTabFilter;
            const speakerMatch = currentSpeakerFilter === 'all' || itemSpeaker === currentSpeakerFilter;
-           return tabMatch && speakerMatch;
+           if (!speakerMatch) return false;
+
+           let tabMatch = false;
+           if (currentTabFilter === 'all') {
+               if (item.type === 'heading' || item.type === 'error' || (item.type === 'image' && item.anchorId === HEADER_IMAGE_ANCHOR)) {
+                   tabMatch = true;
+               } else {
+                   tabMatch = itemTab ? visibleTabsInAllMode.has(itemTab) : false;
+               }
+           } else {
+               tabMatch = itemTab === currentTabFilter;
+           }
+           
+           return tabMatch;
        });
 
        const typeSortOrder = { heading: 1, message: 2, image: 3, error: 4 };
@@ -1194,8 +1368,12 @@
   function createMessageElement(logItem) {
       if (!logItem || logItem.type !== 'message') return null;
       const container = document.createElement('div'); container.className = 'message-item'; container.dataset.itemId = logItem.id; container.dataset.tab = logItem.tab || 'main'; container.dataset.speaker = logItem.speaker || '不明';
-      const currentDisplayMode = logItem.displayMode || 'bubble'; container.dataset.displayMode = currentDisplayMode;
-      const setting = characterSettings[logItem.speaker] || { displayName: logItem.speaker, icon: null, expressions: {}, alignment: 'left', color: '#000000', customTextColor: null };
+      
+      const setting = characterSettings[logItem.speaker] || { displayName: logItem.speaker, icon: null, expressions: {}, alignment: 'left', color: '#000000', customTextColor: null, forceNarration: false };
+      const isForcedNarration = setting.forceNarration || false;
+      const currentDisplayMode = isForcedNarration ? 'narration' : (logItem.displayMode || 'bubble');
+      container.dataset.displayMode = currentDisplayMode;
+      
       const finalAlignment = logItem.alignmentOverride || setting.alignment || 'left';
 
       const messageTextColor = setting.customTextColor || customizationSettings.baseTextColor;
@@ -1284,7 +1462,16 @@
       narrationContainer.appendChild(narrationActionButtonContainer);
       container.appendChild(narrationContainer);
 
-      const toggleButton = document.createElement('button'); toggleButton.className = 'display-mode-toggle'; toggleButton.title = '表示モード切替 (フキダシ/描写)'; toggleButton.textContent = (currentDisplayMode === 'narration') ? '💬' : '📝'; toggleButton.onclick = () => toggleMessageDisplayMode(logItem.id);
+      const toggleButton = document.createElement('button'); 
+      toggleButton.className = 'display-mode-toggle'; 
+      toggleButton.title = '表示モード切替 (フキダシ/描写)'; 
+      toggleButton.textContent = (currentDisplayMode === 'narration') ? '💬' : '📝'; 
+      toggleButton.onclick = () => toggleMessageDisplayMode(logItem.id);
+      toggleButton.disabled = isForcedNarration;
+      if (isForcedNarration) {
+        toggleButton.title = 'キャラクター設定により地の文に固定されています';
+        toggleButton.style.cursor = 'not-allowed';
+      }
       container.appendChild(toggleButton);
       return container;
   }
@@ -1299,6 +1486,10 @@
 
   function toggleMessageDisplayMode(itemId) {
       const itemIndex = displayLogData.findIndex(item => item.id === itemId && item.type === 'message'); if (itemIndex === -1) return;
+      
+      const setting = characterSettings[displayLogData[itemIndex].speaker];
+      if (setting && setting.forceNarration) return; // Do nothing if narration is forced
+
       const currentMode = displayLogData[itemIndex].displayMode || 'bubble'; const newMode = (currentMode === 'bubble') ? 'narration' : 'bubble'; displayLogData[itemIndex].displayMode = newMode;
       const elementToUpdate = logDisplayDiv.querySelector(`.message-item[data-item-id="${itemId}"]`);
       if (elementToUpdate) {
@@ -1842,6 +2033,7 @@
                   alignment: setting.alignment || 'left',
                   color: setting.color || '#000000',
                   customTextColor: setting.customTextColor,
+                  forceNarration: !!setting.forceNarration,
                   isNew: !!setting.isNew
               };
               if (setting.expressions) { for (const [expName, _] of Object.entries(setting.expressions)) { const expKey = `exp_${speaker}_${expName}`; newSetting.expressions[expName] = imagePathMap.get(expKey) || null; } }
@@ -1904,6 +2096,7 @@
                   alignment: loadedSetting.alignment || 'left',
                   color: loadedSetting.color || '#000000',
                   customTextColor: loadedSetting.customTextColor || null,
+                  forceNarration: !!loadedSetting.forceNarration,
                   isNew: !!loadedSetting.isNew
               };
           }
@@ -2004,6 +2197,8 @@
        if(uniqueTabsFound.size > 0 && !uniqueTabsFound.has('all')) uniqueTabsFound.add('all');
        else if (uniqueTabsFound.size === 0) uniqueTabsFound = new Set(['all', 'main']);
 
+       visibleTabsInAllMode = new Set([...uniqueTabsFound].filter(t => t !== 'all'));
+
       updateSpeakerDataForExport(); populateCharacterSettingsUI(); updateCustomizationUI(); populateTabsUI(); populateSpeakerFilterUI(); renderLog();
   }
 
@@ -2055,9 +2250,10 @@
                    }
                }
               if (item.type === 'message') {
-                  const charSettingFull = characterSettings[item.speaker] || { displayName: item.speaker, icon: null, expressions: {}, alignment: 'left', color: '#000000', customTextColor: null };
+                  const charSettingFull = characterSettings[item.speaker] || { displayName: item.speaker, icon: null, expressions: {}, alignment: 'left', color: '#000000', customTextColor: null, forceNarration: false };
                   const speakerName = charSettingFull.displayName; const originalSpeaker = item.speaker;
                   const finalAlignment = item.alignmentOverride || charSettingFull.alignment || 'left';
+                  const finalDisplayMode = (speakerData[originalSpeaker] && speakerData[originalSpeaker].forceNarration) ? 'narration' : (item.displayMode || 'bubble');
 
                   const messageTextColor = charSettingFull.customTextColor || baseTextColor;
                   let textStyle = `color: ${messageTextColor};`;
@@ -2089,7 +2285,7 @@
                                          `--bubble-bg-color: ${normalBubbleColor}; --bubble-arrow-color: ${normalBubbleColor};`;
 
                   logBodyContent += `
-<div class="message-item export log-item" data-tab="${escapeHtml(item.tab || 'main')}" data-speaker="${escapeHtml(originalSpeaker)}" data-display-mode="${item.displayMode || 'bubble'}">
+<div class="message-item export log-item" data-tab="${escapeHtml(item.tab || 'main')}" data-speaker="${escapeHtml(originalSpeaker)}" data-display-mode="${finalDisplayMode}">
   <div class="message-container export ${finalAlignment === 'right' ? 'align-right' : ''}">
       <div class="icon-container export" style="width:${iconSize}px; height:${iconSize}px;">
           <img src="${iconRelativePath}" alt="${escapeHtml(speakerName)} (${iconKey})" class="icon export" style="border-color: ${iconBorderColor}; display: ${imageDisplay};" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline-block';">
@@ -2130,8 +2326,9 @@
       });
       let filterControlsHtml = `
 <div class="filter-controls export">
-  <div class="filter-section"> <label for="export-tab-filter">タブ:</label> <nav id="export-log-tabs" class="tab-nav export" aria-label="Log Tabs"><span class="placeholder">読み込み中...</span></nav> </div>
-  <div class="filter-section"> <label for="export-speaker-filter">発言者:</label> <select id="export-speaker-filter" class="speaker-filter export"><option value="all">すべての発言者</option></select> </div>
+  <div class="filter-group"> <label for="export-tab-filter">タブ:</label> <nav id="export-log-tabs" class="tab-nav export" aria-label="Log Tabs"><span class="placeholder">読み込み中...</span></nav> </div>
+  <div id="export-all-mode-filter" class="all-mode-filter export hidden"></div>
+  <div class="filter-group"> <label for="export-speaker-filter">発言者:</label> <select id="export-speaker-filter" class="speaker-filter export"><option value="all">すべての発言者</option></select> </div>
 </div>`;
       const headingsNavHtml = headingsForNavOutput.length > 0 ? `<div id="export-headings-nav-container" class="export-headings-nav"><button id="export-toggle-headings-nav" title="見出し一覧の表示/非表示">見出し</button><div class="nav-content"><h5>見出し</h5><ul id="export-headings-list"></ul></div></div>` : "";
       const safeHtmlTitle = escapeHtml(htmlTitle); const nameBelowIconBodyClass = nameBelowIconMode ? 'name-below-icon-active' : ''; const fontBodyClass = fontFamily || 'font-noto-sans';
@@ -2154,20 +2351,159 @@
 
        return `
 (function() { "use strict";
-let currentExportTab = 'all'; let currentExportSpeaker = 'all'; const speakerSettings = ${speakerMapString}; const exportBaseTextColor = ${baseTextColorString}; const exportTextEdgeColor = ${textEdgeColorString}; const exportLogTabsNav = document.getElementById('export-log-tabs'); const exportSpeakerFilter = document.getElementById('export-speaker-filter'); const exportLogDisplay = document.getElementById('export-log-display'); const allLogItems = exportLogDisplay ? Array.from(exportLogDisplay.querySelectorAll('.log-item')) : [];
+let currentExportTab = 'all'; let currentExportSpeaker = 'all'; let visibleTabsInAllModeExport = new Set();
+const speakerSettings = ${speakerMapString}; const exportBaseTextColor = ${baseTextColorString}; const exportTextEdgeColor = ${textEdgeColorString};
+const exportLogTabsNav = document.getElementById('export-log-tabs'); const exportSpeakerFilter = document.getElementById('export-speaker-filter');
+const exportAllModeFilter = document.getElementById('export-all-mode-filter'); const exportLogDisplay = document.getElementById('export-log-display');
+const allLogItems = exportLogDisplay ? Array.from(exportLogDisplay.querySelectorAll('.log-item')) : [];
 if (!exportLogDisplay) { console.error("Export log display not found."); return; }
 
 document.documentElement.style.setProperty('--text-edge-color', exportTextEdgeColor);
 
 function getSpeakerTextColor(speakerId) { return (speakerSettings[speakerId] && speakerSettings[speakerId].customTextColor) ? speakerSettings[speakerId].customTextColor : exportBaseTextColor; }
-function applyTextColorToItem(item) { const speakerId = item.dataset.speaker; if (item.classList.contains('message-item')) { const textColor = getSpeakerTextColor(speakerId); const nameElements = item.querySelectorAll('.speaker-name-default, .speaker-name-below-icon'); nameElements.forEach(el => el.style.color = textColor); const bubbleElement = item.querySelector('.bubble.export'); if (bubbleElement) bubbleElement.style.color = textColor; const narrationContainer = item.querySelector('.narration-container.export'); if (narrationContainer) narrationContainer.style.color = textColor; } else if (item.classList.contains('heading-item')) { item.style.color = exportBaseTextColor; } }
-function initializeExportFilters() { const uniqueTabs = new Set(['all']); const uniqueSpeakers = new Set(['all']); const speakerCounts = {}; allLogItems.forEach(item => { const tab = item.dataset.tab; const speaker = item.dataset.speaker; if (tab && tab !== 'all' && tab !== 'header') uniqueTabs.add(tab); if (speaker && speaker !== 'all' && speaker !== '不明' && speaker !== 'header' && speaker !== 'header_img') { uniqueSpeakers.add(speaker); speakerCounts[speaker] = (speakerCounts[speaker] || 0) + 1; } applyTextColorToItem(item); }); if(exportLogTabsNav) populateExportTabs(uniqueTabs); if(exportSpeakerFilter) {populateExportSpeakerFilter(uniqueSpeakers, speakerCounts); exportSpeakerFilter.addEventListener('change', handleExportSpeakerChange);} applyExportFilters(); }
-function populateExportTabs(tabsSet) { exportLogTabsNav.innerHTML = ''; const sortedTabs = [...tabsSet].sort((a, b) => a === 'all' ? -1 : b === 'all' ? 1 : a.localeCompare(b)); const fragment = document.createDocumentFragment(); sortedTabs.forEach(tab => { const button = document.createElement('button'); button.textContent = '[' + tab + ']'; button.dataset.tab = tab; button.className = 'tab-button export'; if (tab === currentExportTab) button.classList.add('active'); button.addEventListener('click', () => handleExportTabChange(tab)); fragment.appendChild(button); }); exportLogTabsNav.appendChild(fragment); }
-function populateExportSpeakerFilter(speakersSet, counts) { const sortedSpeakers = [...speakersSet].sort((a, b) => { if (a === 'all') return -1; if (b === 'all') return 1; const countDiff = (counts[b] || 0) - (counts[a] || 0); return countDiff !== 0 ? countDiff : a.localeCompare(b); }); const fragment = document.createDocumentFragment(); if (!sortedSpeakers.includes('all')) sortedSpeakers.unshift('all'); sortedSpeakers.forEach(speaker => { const option = document.createElement('option'); option.value = speaker; if (speaker === 'all') { option.textContent = 'すべての発言者'; } else { const displayName = (speakerSettings[speaker] && speakerSettings[speaker].displayName) ? speakerSettings[speaker].displayName : speaker; const count = counts[speaker] || 0; option.textContent = displayName + ' (' + count + '回)'; } fragment.appendChild(option); }); exportSpeakerFilter.innerHTML = ''; exportSpeakerFilter.appendChild(fragment); exportSpeakerFilter.value = currentExportSpeaker; exportSpeakerFilter.disabled = sortedSpeakers.length <= 1; }
-function handleExportTabChange(tabName) { if (currentExportTab === tabName) return; currentExportTab = tabName; if(exportLogTabsNav) exportLogTabsNav.querySelectorAll('.tab-button').forEach(btn => { btn.classList.toggle('active', btn.dataset.tab === tabName); }); applyExportFilters(); }
+function applyInitialStyles() {
+    allLogItems.forEach(item => {
+        const speakerId = item.dataset.speaker;
+        const speakerSetting = speakerSettings[speakerId];
+        if (item.classList.contains('message-item')) {
+            const textColor = getSpeakerTextColor(speakerId);
+            const nameElements = item.querySelectorAll('.speaker-name-default, .speaker-name-below-icon');
+            nameElements.forEach(el => el.style.color = textColor);
+            const bubbleElement = item.querySelector('.bubble.export');
+            if (bubbleElement) bubbleElement.style.color = textColor;
+            const narrationContainer = item.querySelector('.narration-container.export');
+            if (narrationContainer) narrationContainer.style.color = textColor;
+        } else if (item.classList.contains('heading-item')) {
+            item.style.color = exportBaseTextColor;
+        }
+    });
+}
+
+function initializeExportFilters() {
+    const uniqueTabs = new Set(['all']); const uniqueSpeakers = new Set(['all']); const speakerCounts = {};
+    allLogItems.forEach(item => {
+        const tab = item.dataset.tab; const speaker = item.dataset.speaker;
+        if (tab && tab !== 'all' && tab !== 'header') uniqueTabs.add(tab);
+        if (speaker && speaker !== 'all' && speaker !== '不明' && speaker !== 'header_img') {
+             uniqueSpeakers.add(speaker); if(item.classList.contains('message-item')) speakerCounts[speaker] = (speakerCounts[speaker] || 0) + 1;
+        }
+    });
+    visibleTabsInAllModeExport = new Set([...uniqueTabs].filter(t => t !== 'all'));
+    if(exportLogTabsNav) populateExportTabs(uniqueTabs);
+    if(exportSpeakerFilter) {populateExportSpeakerFilter(uniqueSpeakers, speakerCounts); exportSpeakerFilter.addEventListener('change', handleExportSpeakerChange);}
+    if(exportAllModeFilter) populateExportAllModeFilter(uniqueTabs);
+    handleExportTabChange(currentExportTab);
+    applyExportFilters();
+}
+
+function populateExportTabs(tabsSet) {
+    exportLogTabsNav.innerHTML = '';
+    const sortedTabs = [...tabsSet].sort((a, b) => a === 'all' ? -1 : b === 'all' ? 1 : a.localeCompare(b));
+    const fragment = document.createDocumentFragment(); sortedTabs.forEach(tab => {
+        const button = document.createElement('button'); button.textContent = '[' + tab + ']'; button.dataset.tab = tab;
+        button.className = 'tab-button export'; if (tab === currentExportTab) button.classList.add('active');
+        button.addEventListener('click', () => handleExportTabChange(tab)); fragment.appendChild(button);
+    });
+    exportLogTabsNav.appendChild(fragment);
+}
+
+function populateExportAllModeFilter(tabsSet) {
+    exportAllModeFilter.innerHTML = '';
+    const container = document.createElement('div');
+    container.className = 'all-mode-checkbox-container';
+    const tabsToDisplay = [...tabsSet].filter(t => t !== 'all').sort();
+    if (tabsToDisplay.length === 0) return;
+    tabsToDisplay.forEach(tab => {
+        const wrapper = document.createElement('div'); wrapper.className = 'checkbox-wrapper';
+        const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.id = 'export-check-' + tab; checkbox.value = tab;
+        checkbox.checked = visibleTabsInAllModeExport.has(tab);
+        checkbox.addEventListener('change', (e) => { if (e.target.checked) visibleTabsInAllModeExport.add(tab); else visibleTabsInAllModeExport.delete(tab); applyExportFilters(); });
+        const label = document.createElement('label'); label.htmlFor = 'export-check-' + tab; label.textContent = tab;
+        wrapper.appendChild(checkbox); wrapper.appendChild(label); container.appendChild(wrapper);
+    });
+    const btns = document.createElement('div'); btns.className = 'all-mode-buttons';
+    const selectAll = document.createElement('button'); selectAll.textContent = '全選択';
+    selectAll.onclick = () => { tabsToDisplay.forEach(t => visibleTabsInAllModeExport.add(t)); populateExportAllModeFilter(tabsSet); applyExportFilters(); };
+    const deselectAll = document.createElement('button'); deselectAll.textContent = '全解除';
+    deselectAll.onclick = () => { visibleTabsInAllModeExport.clear(); populateExportAllModeFilter(tabsSet); applyExportFilters(); };
+    btns.appendChild(selectAll); btns.appendChild(deselectAll); container.appendChild(btns);
+    exportAllModeFilter.appendChild(container);
+}
+
+function populateExportSpeakerFilter(speakersSet, counts) {
+    const sortedSpeakers = [...speakersSet].sort((a, b) => { if (a === 'all') return -1; if (b === 'all') return 1; const countDiff = (counts[b] || 0) - (counts[a] || 0); return countDiff !== 0 ? countDiff : a.localeCompare(b); });
+    const fragment = document.createDocumentFragment(); if (!sortedSpeakers.includes('all')) sortedSpeakers.unshift('all');
+    sortedSpeakers.forEach(speaker => {
+        const option = document.createElement('option'); option.value = speaker;
+        if (speaker === 'all') { option.textContent = 'すべての発言者'; } else { const displayName = (speakerSettings[speaker] && speakerSettings[speaker].displayName) ? speakerSettings[speaker].displayName : speaker; const count = counts[speaker] || 0; option.textContent = displayName + ' (' + count + '回)'; }
+        fragment.appendChild(option);
+    });
+    exportSpeakerFilter.innerHTML = ''; exportSpeakerFilter.appendChild(fragment); exportSpeakerFilter.value = currentExportSpeaker; exportSpeakerFilter.disabled = sortedSpeakers.length <= 1;
+}
+
+function handleExportTabChange(tabName) {
+    if (currentExportTab === tabName) return; currentExportTab = tabName;
+    if(exportLogTabsNav) exportLogTabsNav.querySelectorAll('.tab-button').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tabName));
+    if(exportAllModeFilter) exportAllModeFilter.classList.toggle('hidden', tabName !== 'all');
+    applyExportFilters();
+}
+
 function handleExportSpeakerChange() { const newSpeaker = exportSpeakerFilter.value; if (currentExportSpeaker === newSpeaker) return; currentExportSpeaker = newSpeaker; applyExportFilters(); }
-function applyExportFilters() { let visibleCount = 0; allLogItems.forEach(item => { const itemTab = item.dataset.tab; const itemSpeaker = item.dataset.speaker; let isVisible = false; if (item.classList.contains('heading-item') || item.classList.contains('error-message') || itemTab === 'header') { isVisible = true; } else { const tabMatch = currentExportTab === 'all' || itemTab === currentExportTab; const speakerMatch = currentExportSpeaker === 'all' || itemSpeaker === currentExportSpeaker; isVisible = tabMatch && speakerMatch; } if (isVisible) { item.classList.remove('hidden-log-item'); visibleCount++; } else { item.classList.add('hidden-log-item'); } }); updateExportTabSeparators(); }
-function updateExportTabSeparators() { const separators = exportLogDisplay.querySelectorAll('.tab-separator.export'); separators.forEach(hr => hr.style.display = 'none'); if (currentExportTab === 'all') { let lastVisibleTab = null; let firstVisibleItemFound = false; const potentialSeparators = Array.from(exportLogDisplay.children); potentialSeparators.forEach((element) => { const isLogItem = element.classList.contains('log-item'); const isVisible = isLogItem && !element.classList.contains('hidden-log-item'); const isHeader = element.dataset.tab === 'header'; if (isVisible && !isHeader && element.classList.contains('message-item')) { const currentItemTab = element.dataset.tab; if (firstVisibleItemFound && lastVisibleTab !== null && currentItemTab !== lastVisibleTab && currentItemTab !== 'all') { let previousElement = element.previousElementSibling; while (previousElement) { if (previousElement.classList.contains('tab-separator')) { previousElement.style.display = 'block'; break; } if ((previousElement.classList.contains('log-item') && !previousElement.classList.contains('hidden-log-item') && previousElement.dataset.tab !== 'header') || !previousElement.previousElementSibling) break; previousElement = previousElement.previousElementSibling; } } if (currentItemTab !== 'all' && currentItemTab !== 'header') lastVisibleTab = currentItemTab; firstVisibleItemFound = true; } }); } }
+
+function applyExportFilters() {
+    let visibleCount = 0;
+    allLogItems.forEach(item => {
+        const itemTab = item.dataset.tab; const itemSpeaker = item.dataset.speaker;
+        let isVisible = false;
+        
+        const speakerMatch = currentExportSpeaker === 'all' || itemSpeaker === currentExportSpeaker;
+
+        let tabMatch = false;
+        if (currentExportTab === 'all') {
+            if (item.classList.contains('heading-item') || item.classList.contains('error-message') || itemTab === 'header') {
+                tabMatch = true;
+            } else {
+                tabMatch = itemTab ? visibleTabsInAllModeExport.has(itemTab) : false;
+            }
+        } else {
+            tabMatch = itemTab === currentExportTab;
+        }
+
+        isVisible = speakerMatch && tabMatch;
+        
+        if (isVisible) { item.classList.remove('hidden-log-item'); visibleCount++; }
+        else { item.classList.add('hidden-log-item'); }
+    });
+    updateExportTabSeparators();
+}
+
+function updateExportTabSeparators() {
+    const separators = exportLogDisplay.querySelectorAll('.tab-separator.export');
+    separators.forEach(hr => hr.style.display = 'none');
+    if (currentExportTab === 'all') {
+        let lastVisibleTab = null; let firstVisibleItemFound = false;
+        const potentialSeparators = Array.from(exportLogDisplay.children);
+        potentialSeparators.forEach((element) => {
+            const isLogItem = element.classList.contains('log-item');
+            const isVisible = isLogItem && !element.classList.contains('hidden-log-item');
+            const isHeader = element.dataset.tab === 'header';
+            if (isVisible && !isHeader && element.classList.contains('message-item')) {
+                const currentItemTab = element.dataset.tab;
+                if (firstVisibleItemFound && lastVisibleTab !== null && currentItemTab !== lastVisibleTab && currentItemTab !== 'all') {
+                    let previousElement = element.previousElementSibling;
+                    while (previousElement) {
+                        if (previousElement.classList.contains('tab-separator')) { previousElement.style.display = 'block'; break; }
+                        if ((previousElement.classList.contains('log-item') && !previousElement.classList.contains('hidden-log-item') && previousElement.dataset.tab !== 'header') || !previousElement.previousElementSibling) break;
+                        previousElement = previousElement.previousElementSibling;
+                    }
+                }
+                if (currentItemTab !== 'all' && currentItemTab !== 'header') lastVisibleTab = currentItemTab;
+                firstVisibleItemFound = true;
+            }
+        });
+    }
+}
+
 const headingsForExport = ${headingsDataString};
 function initializeExportHeadingsNav() {
     const navContainer = document.getElementById('export-headings-nav-container');
@@ -2209,8 +2545,8 @@ function initializeExportHeadingsNav() {
         toggleBtn.textContent = '見';
     }
 }
-if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', () => { initializeExportFilters(); initializeExportHeadingsNav(); }); }
-else { initializeExportFilters(); initializeExportHeadingsNav(); }
+if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', () => { applyInitialStyles(); initializeExportFilters(); initializeExportHeadingsNav(); }); }
+else { applyInitialStyles(); initializeExportFilters(); initializeExportHeadingsNav(); }
 })();`;
    }
 
@@ -2294,7 +2630,7 @@ h1 {
     padding-bottom: 10px;
     margin: 0 0 25px 0;
     text-align: center;
-    color: var(--base-text-color);
+color: var(--base-text-color);
 }
 .filter-controls.export {
     background-color: #f8f9fa;
@@ -2305,11 +2641,11 @@ h1 {
     display: flex;
     flex-wrap: wrap;
     gap: 15px;
-    align-items: center;
+    align-items: flex-start;
 }
-.filter-section { display: flex; align-items: center; gap: 8px; }
-.filter-section label { font-weight: bold; font-size: 0.9em; color: #495057; }
-.tab-nav.export { display: flex; flex-wrap: wrap; gap: 5px; padding-bottom: 5px; }
+.filter-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.filter-group label { font-weight: bold; font-size: 0.9em; color: #495057; white-space: nowrap; }
+.tab-nav.export { display: flex; flex-wrap: wrap; gap: 5px; }
 .tab-button.export {
     background-color: #e9ecef; border: 1px solid #ced4da; color: #495057;
     padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 0.85em;
@@ -2317,6 +2653,20 @@ h1 {
 }
 .tab-button.export:hover { background-color: #dee2e6; }
 .tab-button.export.active { background-color: #0d6efd; border-color: #0d6efd; color: white; font-weight: bold; }
+.all-mode-filter.export {
+    width: 100%;
+    padding-top: 10px;
+    border-top: 1px solid #e0e0e0;
+    margin-top: 10px;
+}
+.all-mode-filter.export.hidden { display: none; }
+.all-mode-checkbox-container { display: flex; flex-wrap: wrap; align-items: center; gap: 15px; }
+.all-mode-filter.export .checkbox-wrapper { display: flex; align-items: center; }
+.all-mode-filter.export input[type="checkbox"] { margin-right: 5px; cursor: pointer; }
+.all-mode-filter.export label { font-size: 0.85em; cursor: pointer; }
+.all-mode-buttons { margin-left: auto; display: flex; gap: 8px; }
+.all-mode-buttons button { font-size: 0.75em; padding: 2px 6px; background: #ddd; border: 1px solid #ccc; border-radius: 3px; cursor: pointer; }
+
 .speaker-filter.export {
     padding: 5px 8px; border: 1px solid #ced4da; border-radius: 4px;
     font-size: 0.9em; background-color: white; min-width: 150px;
@@ -2436,7 +2786,7 @@ body.name-below-icon-active .message-container.export.align-right .bubble.export
     .log-export-container { padding: 15px; margin: 10px; }
     h1 { font-size: 1.5em; margin-bottom: 20px; }
     .filter-controls.export { flex-direction: column; align-items: stretch; }
-    .filter-section { flex-direction: column; align-items: flex-start; width: 100%; }
+    .filter-group { flex-direction: column; align-items: flex-start; width: 100%; }
     .tab-nav.export { justify-content: center; }
     .speaker-filter.export { width: 100%; }
     .icon-container.export { width: ${responsiveIconSize}px; height: ${responsiveIconSize}px; margin-right: 10px; }
