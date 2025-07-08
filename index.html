@@ -38,9 +38,9 @@
             <h3 class="font-semibold mb-1">使い方:</h3>
             <ol class="list-decimal list-inside space-y-1">
                 <li>ログファイルまたはプロジェクト(.cclogproj)を読み込みます。</li>
-                <li>キャラクター設定タブで表示名/アイコン/向き/テーマ色/文字色/表情差分を設定、または新規キャラを追加します。</li>
+                <li>キャラクター設定タブで表示名/アイコン/向き/テーマ色/文字色/表情差分を設定、または新規キャラを追加します。「常に地の文で表示」で特定話者の全発言をナレーション化できます。</li>
                 <li>表示カスタマイズタブでフォントや色、基本文字色、表示モード、テキスト縁取り色、出力ログ背景画像などを調整します。</li>
-                <li>ログ表示エリアで、フィルタリング、画像挿入、見出し挿入(最大6レベル)、発言追加、個別メッセージの表示モード/アイコン/向き変更、メッセージ編集が可能です。</li>
+                <li>ログ表示エリアで、フィルタリング、画像挿入、見出し挿入(最大6レベル)、発言追加、個別メッセージの表示モード/アイコン/向き変更、メッセージ編集が可能です。[all]タブ選択時には、表示するタブをチェックボックスで選択できます。</li>
                 <li>「プロジェクトを保存」で編集状態を保存、「整形済みログをZIPで出力」で共有用HTMLセットを出力します。</li>
             </ol>
         </div>
@@ -88,7 +88,7 @@
                     <h3 class="text-lg font-semibold text-gray-700">2. キャラクター設定:</h3>
                     <button id="add-new-character-button" class="px-3 py-1.5 bg-green-500 text-white text-sm font-medium rounded-md hover:bg-green-600">新規キャラクター追加</button>
                 </div>
-                <p class="text-sm text-gray-600 mb-4">ログから検出された発言者名です。表示名/アイコン/向き/テーマ色/文字色/表情差分を設定してください。</p>
+                <p class="text-sm text-gray-600 mb-4">ログから検出された発言者です。表示名/アイコン/向き/テーマ色/文字色/表情差分などを設定してください。</p>
                 <div id="character-settings" class="space-y-4"><p class="text-gray-500 italic">ログファイルまたはプロジェクトファイルを読み込むと表示されます。</p></div>
                  <button id="save-settings-button" class="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed" disabled>設定を一時保存(LocalStorage)</button>
                  <button id="load-settings-button" class="mt-4 ml-2 px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed" disabled>設定を読み込み(LocalStorage)</button>
@@ -141,9 +141,13 @@
             <div class="mb-4 p-3 border rounded-lg bg-gray-50 flex flex-wrap items-center justify-between gap-4">
                  <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
                      <div><label for="speaker-filter" class="block text-sm font-medium text-gray-700">発言者:</label><select id="speaker-filter" class="mt-1 block w-full md:w-auto rounded-md border-gray-300 shadow-sm p-2 text-sm bg-white focus:border-indigo-500 focus:ring-indigo-500" disabled><option value="all">すべての発言者</option></select></div>
-                     <div><span class="block text-sm font-medium text-gray-700">タブ:</span><nav id="log-tabs" class="mt-1 -mb-px flex space-x-2 overflow-x-auto pb-1" aria-label="Log Tabs"><span class="whitespace-nowrap py-2 px-1 text-gray-500 text-sm italic">ログ読込中</span></nav></div>
+                     <div class="flex-grow min-w-[200px]"><span class="block text-sm font-medium text-gray-700">タブ:</span><nav id="log-tabs" class="mt-1 -mb-px flex space-x-2 overflow-x-auto pb-1" aria-label="Log Tabs"><span class="whitespace-nowrap py-2 px-1 text-gray-500 text-sm italic">ログ読込中</span></nav></div>
                  </div>
                  <div><button id="add-header-image-button" class="mt-2 md:mt-0 px-3 py-1.5 bg-teal-500 text-white text-sm font-medium rounded-md hover:bg-teal-600 disabled:opacity-50 disabled:cursor-not-allowed" disabled>先頭に画像を追加</button></div>
+            </div>
+            
+            <div id="all-mode-tab-filter" class="hidden mt-2 p-3 border rounded-lg bg-gray-100">
+                <!-- Checkboxes for tabs in 'all' mode will be injected here -->
             </div>
 
             <div id="log-display" class="overflow-y-auto border border-gray-300 rounded-lg p-4 bg-white space-y-1 font-noto-sans" style="--bubble-max-width: 80%; --bubble-bg-color: #ffffff; --bubble-right-bg-color: #dcf8c6; --bubble-arrow-color: #ffffff; --bubble-right-arrow-color: #dcf8c6; --icon-size: 64px;" aria-live="polite">
@@ -183,6 +187,7 @@
         <footer class="app-footer">
             <h4>更新履歴</h4>
             <ul>
+                 <li>2025/07/08: キャラごとの強制地の文モード機能、[all]タブでの表示タブ選択機能を追加</li>
                  <li>2025/06/06: Tekeyログのタブ数問題修正、エクスポート時の画像名を英数字に変更 </li>
                  <li>2025/05/31: 見出し・新規キャラ追加機能・向き変更・文字色変更機能・出力ログ背景画像設定、文字縁取り機能追加 </li>
                  <li>2025/05/06: 先頭画像挿入機能、差分機能、プロジェクトのエクスポート・インポート機能追加、Tekeyログ読み込み機能追加</li>
