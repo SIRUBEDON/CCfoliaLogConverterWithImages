@@ -293,7 +293,7 @@
        });
        if (uniqueTabsFound.size > 0 && !uniqueTabsFound.has('all')) uniqueTabsFound.add('all');
        else if (uniqueTabsFound.size === 0) uniqueTabsFound = new Set(['all', 'main']);
-       
+
        visibleTabsInAllMode = new Set([...uniqueTabsFound].filter(t => t !== 'all'));
 
        displayLogData = parsedData.map(item => {
@@ -635,13 +635,13 @@
       });
       characterSettingsDiv.appendChild(fragment);
   }
- 
+
   function generateSafeIdSuffix(name) {
       if (!name) return '';
       // IDとして安全な文字列を生成するため、英数字とハイフン、アンダースコア以外を文字コード(U+XXXX)に置換
       return String(name).replace(/[^a-zA-Z0-9_-]/g, c => `U${c.charCodeAt(0)}`);
   }
- 
+
   function populateExpressionList(listElement, speaker) {
        listElement.innerHTML = ''; const expressions = characterSettings[speaker]?.expressions || {}; const sortedNames = Object.keys(expressions).sort();
        if (sortedNames.length === 0) { listElement.innerHTML = '<p class="text-xs text-gray-500 italic">差分アイコン未登録</p>'; return; }
@@ -1109,13 +1109,13 @@
           fragment.appendChild(button);
       });
       logTabsNav.appendChild(fragment); logTabsNav.setAttribute('role', 'tablist');
-      
+
       handleTabChange(currentTabFilter); // To ensure 'all' mode filter UI is shown if needed
   }
-  
+
   function populateAllModeTabFilterUI() {
     allModeTabFilterDiv.innerHTML = '';
-    
+
     const container = document.createElement('div');
     container.className = 'flex flex-wrap items-center gap-x-4 gap-y-2 w-full';
 
@@ -1126,7 +1126,7 @@
 
     const checkboxGroup = document.createElement('div');
     checkboxGroup.className = 'flex flex-wrap gap-x-3 gap-y-1';
-    
+
     const tabsToDisplay = [...uniqueTabsFound].filter(t => t !== 'all').sort((a, b) => a.localeCompare(b));
 
     tabsToDisplay.forEach(tab => {
@@ -1184,7 +1184,7 @@
     buttonGroup.appendChild(selectAllBtn);
     buttonGroup.appendChild(deselectAllBtn);
     container.appendChild(buttonGroup);
-    
+
     allModeTabFilterDiv.appendChild(container);
     allModeTabFilterDiv.classList.remove('hidden');
   }
@@ -1295,7 +1295,7 @@
            } else {
                tabMatch = itemTab === currentTabFilter;
            }
-           
+
            return tabMatch;
        });
 
@@ -1368,12 +1368,12 @@
   function createMessageElement(logItem) {
       if (!logItem || logItem.type !== 'message') return null;
       const container = document.createElement('div'); container.className = 'message-item'; container.dataset.itemId = logItem.id; container.dataset.tab = logItem.tab || 'main'; container.dataset.speaker = logItem.speaker || '不明';
-      
+
       const setting = characterSettings[logItem.speaker] || { displayName: logItem.speaker, icon: null, expressions: {}, alignment: 'left', color: '#000000', customTextColor: null, forceNarration: false };
       const isForcedNarration = setting.forceNarration || false;
       const currentDisplayMode = isForcedNarration ? 'narration' : (logItem.displayMode || 'bubble');
       container.dataset.displayMode = currentDisplayMode;
-      
+
       const finalAlignment = logItem.alignmentOverride || setting.alignment || 'left';
 
       const messageTextColor = setting.customTextColor || customizationSettings.baseTextColor;
@@ -1486,7 +1486,7 @@
 
   function toggleMessageDisplayMode(itemId) {
       const itemIndex = displayLogData.findIndex(item => item.id === itemId && item.type === 'message'); if (itemIndex === -1) return;
-      
+
       const setting = characterSettings[displayLogData[itemIndex].speaker];
       if (setting && setting.forceNarration) return; // Do nothing if narration is forced
 
@@ -2455,7 +2455,7 @@ function applyExportFilters() {
     allLogItems.forEach(item => {
         const itemTab = item.dataset.tab; const itemSpeaker = item.dataset.speaker;
         let isVisible = false;
-        
+
         const speakerMatch = currentExportSpeaker === 'all' || itemSpeaker === currentExportSpeaker;
 
         let tabMatch = false;
@@ -2470,7 +2470,7 @@ function applyExportFilters() {
         }
 
         isVisible = speakerMatch && tabMatch;
-        
+
         if (isVisible) { item.classList.remove('hidden-log-item'); visibleCount++; }
         else { item.classList.add('hidden-log-item'); }
     });
