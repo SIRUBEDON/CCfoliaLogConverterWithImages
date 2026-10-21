@@ -1,0 +1,11 @@
+{
+  "name": "ccfolialogconverterwithimages-security-tests",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/security.test.cjs"
+  },
+  "devDependencies": {
+    "jsdom": "30.1.3",
+    "jszip": "3.10.1"
+  }
+}
