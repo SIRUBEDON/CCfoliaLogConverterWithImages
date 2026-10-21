@@ -127,6 +127,23 @@
   const RENDER_CHUNK_DELAY = 0;
 
   function escapeHtml(unsafe) { if (typeof unsafe !== 'string') return ''; return unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;"); }
+  // Keep log formatting, but never accept executable markup from files or edits.
+  function sanitizeMessageHtml(value) {
+      if (!window.DOMPurify || !window.DOMPurify.isSupported) {
+          throw new Error('安全なHTML読み込みに必要なライブラリを読み込めませんでした。');
+      }
+      return DOMPurify.sanitize(String(value ?? ''), {
+          ALLOWED_TAGS: ['p', 'div', 'span', 'br', 'b', 'strong', 'i', 'em', 'u', 's', 'del',
+              'ruby', 'rt', 'rp', 'a', 'img', 'ul', 'ol', 'li', 'blockquote', 'pre', 'code', 'sub', 'sup'],
+          ALLOWED_ATTR: ['href', 'src', 'alt', 'title'],
+          ALLOW_DATA_ATTR: false,
+          ALLOW_ARIA_ATTR: false
+      });
+  }
+  function jsonForInlineScript(value) {
+      return JSON.stringify(value).replace(/</g, '\\u003c').replace(/>/g, '\\u003e')
+          .replace(/&/g, '\\u0026').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+  }
   function escapeCssSelector(str) { if (!str) return ''; return str.replace(/([!"#$%&'()*+,.\/:;<=>?@[\\\]^`{|}~])/g, '\\$1'); }
   function showLoading() { if (loadingOverlay) { loadingOverlay.classList.add('visible'); loadingOverlay.setAttribute('aria-hidden', 'false'); } }
   function hideLoading() { if (loadingOverlay) { loadingOverlay.classList.remove('visible'); loadingOverlay.setAttribute('aria-hidden', 'true'); } }
@@ -372,7 +389,7 @@
                   const tabMatch = spans[0]?.textContent?.match(/\[(.*?)\]/);
                   const tab = tabMatch?.[1]?.trim() || 'main';
                   const speaker = spans[1]?.textContent?.trim().replace(/[:：]$/, '').trim() || '不明';
-                  const message = spans[2]?.innerHTML?.trim() ?? '';
+                  const message = sanitizeMessageHtml(spans[2]?.innerHTML?.trim() ?? '');
                   const colorMatch = p.getAttribute('style')?.match(/color:\s*(#[0-9a-fA-F]{3,6}|rgba?\([^)]+\)|[a-zA-Z]+)/);
                   const color = colorMatch?.[1]?.trim() || '#000000';
                   tempData.push({
@@ -421,7 +438,7 @@
               const messageContentContainer = div.cloneNode(true);
               const bElementToRemove = messageContentContainer.querySelector('b'); const spanElementToRemove = messageContentContainer.querySelector('span');
               if (bElementToRemove) messageContentContainer.removeChild(bElementToRemove); if (spanElementToRemove) messageContentContainer.removeChild(spanElementToRemove);
-              const message = messageContentContainer.innerHTML.trim();
+              const message = sanitizeMessageHtml(messageContentContainer.innerHTML.trim());
               const colorMatch = div.getAttribute('style')?.match(/color:\s*(#[0-9a-fA-F]{3,6}|rgba?\([^)]+\)|[a-zA-Z]+)/);
               const color = colorMatch?.[1]?.trim() || '#000000';
               const isDiceRoll = div.classList.contains('diceroll');
@@ -825,7 +842,7 @@
           </div>
           <div class="modal-form-group">
               <label for="new-char-text-color">文字色 (任意、未指定時は基本文字色):</label>
-              <input type="color" id="new-char-text-color" value="${customizationSettings.baseTextColor}">
+              <input type="color" id="new-char-text-color" value="${escapeHtml(customizationSettings.baseTextColor)}">
               <button type="button" id="reset-new-char-text-color" class="text-xs ml-2 p-1 border rounded hover:bg-gray-100">基本色に戻す</button>
           </div>
           <div class="modal-form-group flex items-center space-x-2">
@@ -922,7 +939,7 @@
           .join('');
 
       genericModalBody.innerHTML = `
-          <p class="text-sm text-gray-600 mb-2">ID: ${targetMessageId} のメッセージの下に新しい発言を挿入します。</p>
+          <p class="text-sm text-gray-600 mb-2">ID: ${escapeHtml(String(targetMessageId))} のメッセージの下に新しい発言を挿入します。</p>
           <div class="modal-form-group">
               <label for="add-chat-speaker">発言者:</label>
               <select id="add-chat-speaker">${speakerOptions}</select>
@@ -1007,7 +1024,7 @@
       actionTargetItemId = targetMessageId;
       genericModalTitle.textContent = '見出しを追加';
       genericModalBody.innerHTML = `
-          <p class="text-sm text-gray-600 mb-2">ID: ${targetMessageId || '先頭'} の直前に見出しを挿入します。</p>
+          <p class="text-sm text-gray-600 mb-2">ID: ${escapeHtml(String(targetMessageId || '先頭'))} の直前に見出しを挿入します。</p>
           <div class="modal-form-group">
               <label for="add-heading-text">見出し文:</label>
               <input type="text" id="add-heading-text" placeholder="例: 新しい場面">
@@ -1417,7 +1434,7 @@
       }
       bubbleDiv.style.color = messageTextColor;
 
-      bubbleDiv.innerHTML = logItem.message; bubbleDiv.contentEditable = "true"; bubbleDiv.dataset.itemId = logItem.id; bubbleDiv.addEventListener('blur', handleMessageEdit);
+      bubbleDiv.innerHTML = sanitizeMessageHtml(logItem.message); bubbleDiv.contentEditable = "true"; bubbleDiv.dataset.itemId = logItem.id; bubbleDiv.addEventListener('blur', handleMessageEdit);
       contentContainer.appendChild(speakerNameSpan); contentContainer.appendChild(tabBelowIconSpan); contentContainer.appendChild(bubbleDiv);
 
       const actionButtonContainer = document.createElement('div'); actionButtonContainer.className = 'action-button-container';
@@ -1445,7 +1462,7 @@
       narrationContainer.style.color = messageTextColor;
       const narrationTab = document.createElement('span'); narrationTab.className = 'narration-tab'; narrationTab.textContent = `[${escapeHtml(logItem.tab || 'main')}]`;
       const narrationSpeaker = document.createElement('span'); narrationSpeaker.className = 'narration-speaker'; narrationSpeaker.textContent = `${escapeHtml(setting.displayName)}:`;
-      const narrationMessage = document.createElement('span'); narrationMessage.className = 'narration-message'; narrationMessage.innerHTML = logItem.message; narrationMessage.contentEditable = "true"; narrationMessage.dataset.itemId = logItem.id; narrationMessage.addEventListener('blur', handleMessageEdit);
+      const narrationMessage = document.createElement('span'); narrationMessage.className = 'narration-message'; narrationMessage.innerHTML = sanitizeMessageHtml(logItem.message); narrationMessage.contentEditable = "true"; narrationMessage.dataset.itemId = logItem.id; narrationMessage.addEventListener('blur', handleMessageEdit);
 
       const narrationLine = document.createElement('div');
       narrationLine.appendChild(narrationTab);
@@ -1745,7 +1762,7 @@
   }
 
   function handleMessageEdit(event) {
-      const editedElement = event.target; const itemId = editedElement.dataset.itemId; const newContent = editedElement.innerHTML; if (!itemId) return;
+      const editedElement = event.target; const itemId = editedElement.dataset.itemId; const newContent = sanitizeMessageHtml(editedElement.innerHTML); editedElement.innerHTML = newContent; if (!itemId) return;
       const itemIndex = displayLogData.findIndex(item => item.id === itemId && item.type === 'message'); if (itemIndex === -1) return;
       if (displayLogData[itemIndex].message !== newContent) { displayLogData[itemIndex].message = newContent; }
   }
@@ -2041,7 +2058,7 @@
           }
           projectData.displayLogData = displayLogData.map(item => {
               if (item.type === 'message') {
-                  const newItem = { ...item }; delete newItem.overrideIconSrc;
+                  const newItem = { ...item, message: sanitizeMessageHtml(item.message) }; delete newItem.overrideIconSrc;
                   const overrideKey = `icon_msg_${item.id}`;
                   newItem.overrideIconPath = (item.iconKey === 'override') ? (imagePathMap.get(overrideKey) || null) : null;
                   return newItem;
@@ -2177,7 +2194,7 @@
       if (projectData.displayLogData) {
           displayLogData = projectData.displayLogData.map(item => {
               if (item.type === 'message') {
-                  const newItem = { ...item };
+                  const newItem = { ...item, message: sanitizeMessageHtml(item.message) };
                   if (item.iconKey === 'override' && item.overrideIconPath) { newItem.overrideIconSrc = imageDataUrlMap.get(item.overrideIconPath) || null; }
                   delete newItem.overrideIconPath;
                   return newItem;
@@ -2285,21 +2302,21 @@
                                          `--bubble-bg-color: ${normalBubbleColor}; --bubble-arrow-color: ${normalBubbleColor};`;
 
                   logBodyContent += `
-<div class="message-item export log-item" data-tab="${escapeHtml(item.tab || 'main')}" data-speaker="${escapeHtml(originalSpeaker)}" data-display-mode="${finalDisplayMode}">
+<div class="message-item export log-item" data-tab="${escapeHtml(item.tab || 'main')}" data-speaker="${escapeHtml(originalSpeaker)}" data-display-mode="${escapeHtml(String(finalDisplayMode))}">
   <div class="message-container export ${finalAlignment === 'right' ? 'align-right' : ''}">
-      <div class="icon-container export" style="width:${iconSize}px; height:${iconSize}px;">
-          <img src="${iconRelativePath}" alt="${escapeHtml(speakerName)} (${iconKey})" class="icon export" style="border-color: ${iconBorderColor}; display: ${imageDisplay};" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline-block';">
-          <span class="icon-placeholder export" style="display: ${placeholderDisplay}; border-color: ${iconBorderColor}; line-height: ${Math.round(iconSize*0.9)}px; font-size: ${Math.round(iconSize*0.5)}px;">${placeholderChar}</span>
-          <span class="speaker-name-below-icon export" style="${textStyle}">${escapeHtml(speakerName)}</span>
+      <div class="icon-container export" style="width:${Number(iconSize) || 64}px; height:${Number(iconSize) || 64}px;">
+          <img src="${escapeHtml(String(iconRelativePath))}" alt="${escapeHtml(speakerName)} (${escapeHtml(String(iconKey))})" class="icon export" style="border-color: ${escapeHtml(String(iconBorderColor))}; display: ${imageDisplay};" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline-block';">
+          <span class="icon-placeholder export" style="display: ${placeholderDisplay}; border-color: ${escapeHtml(String(iconBorderColor))}; line-height: ${Math.round(iconSize*0.9)}px; font-size: ${Math.round(iconSize*0.5)}px;">${placeholderChar}</span>
+          <span class="speaker-name-below-icon export" style="${escapeHtml(String(textStyle))}">${escapeHtml(speakerName)}</span>
       </div>
       <div class="content-container export">
-          <span class="speaker-name-default export" style="${textStyle}">${escapeHtml(speakerName)} <span class="original-tab export">[${escapeHtml(item.tab || 'main')}]</span></span>
+          <span class="speaker-name-default export" style="${escapeHtml(String(textStyle))}">${escapeHtml(speakerName)} <span class="original-tab export">[${escapeHtml(item.tab || 'main')}]</span></span>
           <span class="tab-name-below-icon export">[${escapeHtml(item.tab || 'main')}]</span>
-          <div class="bubble export bubble-left" style="${bubbleBgStyle} ${textStyle}">${item.message}</div>
+          <div class="bubble export bubble-left" style="${escapeHtml(String(bubbleBgStyle))} ${escapeHtml(String(textStyle))}">${sanitizeMessageHtml(item.message)}</div>
       </div>
   </div>
-  <div class="narration-container export" style="${textStyle}">
-      <span class="narration-tab">[${escapeHtml(item.tab || 'main')}]</span><span class="narration-speaker">${escapeHtml(speakerName)}:</span> <span class="narration-message">${item.message}</span>
+  <div class="narration-container export" style="${escapeHtml(String(textStyle))}">
+      <span class="narration-tab">[${escapeHtml(item.tab || 'main')}]</span><span class="narration-speaker">${escapeHtml(speakerName)}:</span> <span class="narration-message">${sanitizeMessageHtml(item.message)}</span>
   </div>
 </div>\n`;
               } else if (item.type === 'image') {
@@ -2312,17 +2329,17 @@
                    else {
                        const imgDataFromFullLog = displayLogData.find(d => d.id === imageId); imageRelativePath = imgDataFromFullLog?.src || '';
                    }
-                   const imageAlt = item.caption ? escapeHtml(item.caption) : `挿入画像 ${imageId}`;
+                   const imageAlt = item.caption || `挿入画像 ${imageId}`;
                    logBodyContent += `
 <div class="inserted-image-container export log-item" data-tab="${escapeHtml(dataTab)}" data-speaker="${escapeHtml(dataSpeaker)}">
-  <img src="${imageRelativePath}" alt="${imageAlt}" class="inserted-image export" ${imageRelativePath ? '' : 'style="display:none;"'} onerror="this.style.display='none'; const p=document.createElement('p'); p.className='image-error-placeholder export'; p.textContent='[画像 ${escapeHtml(imageId)} 読込失敗]'; this.parentNode.appendChild(p);">
+  <img src="${escapeHtml(String(imageRelativePath))}" alt="${escapeHtml(String(imageAlt))}" class="inserted-image export" ${imageRelativePath ? '' : 'style="display:none;"'} onerror="this.style.display='none'; const p=document.createElement('p'); p.className='image-error-placeholder export'; p.textContent='[画像 読込失敗]'; this.parentNode.appendChild(p);">
   ${!imageRelativePath ? `<p class="image-error-placeholder export">[画像 ${escapeHtml(imageId)} ファイル不明]</p>` : ''}`;
                    if (item.caption) { logBodyContent += `\n    <p class="image-caption export">${escapeHtml(item.caption)}</p>`; } logBodyContent += `\n</div>\n`;
               } else if (item.type === 'heading') {
                   headingsForNavOutput.push({ id: item.id, text: item.text, level: item.level });
-                  logBodyContent += `<div id="${item.id}" class="heading-item export level-${item.level} log-item" data-tab="all" data-speaker="all" style="color: ${baseTextColor};">${escapeHtml(item.text)}</div>\n`;
+                  logBodyContent += `<div id="${escapeHtml(String(item.id))}" class="heading-item export level-${Math.min(6, Math.max(1, Number(item.level) || 2))} log-item" data-tab="all" data-speaker="all" style="color: ${escapeHtml(String(baseTextColor))};">${escapeHtml(item.text)}</div>\n`;
               } else if (item.type === 'error') { logBodyContent += `\n<div class="error-message export log-item" data-tab="all" data-speaker="all"><strong>解析エラー:</strong> ${escapeHtml(item.message)}<br><small>詳細: ${escapeHtml(item.details)}...</small></div>\n`; }
-          } catch (htmlGenError) { console.error(`Error generating HTML for item ID ${item.id}:`, htmlGenError); logBodyContent += `<div class="export-error">アイテム(ID: ${item.id})のHTML生成エラー</div>\n`; }
+          } catch (htmlGenError) { console.error(`Error generating HTML for item ID ${item.id}:`, htmlGenError); logBodyContent += `<div class="export-error">アイテム(ID: ${escapeHtml(String(item.id))})のHTML生成エラー</div>\n`; }
       });
       let filterControlsHtml = `
 <div class="filter-controls export">
@@ -2341,13 +2358,13 @@
 
       return `<!DOCTYPE html>
 <html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${safeHtmlTitle}</title><link rel="stylesheet" href="style.css"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Noto+Sans+JP:wght@400;700&family=Noto+Serif+JP:wght@400;700&family=M+PLUS+Rounded+1c:wght@400;700&display=swap" rel="stylesheet"></head>
-<body class="${bodyClasses.join(' ')}">${headingsNavHtml}<div class="log-export-container"><h1>${safeHtmlTitle}</h1>${filterControlsHtml}<div id="export-log-display" class="log-display export">${logBodyContent || '<p class="empty-log-message export">ログデータがありません。</p>'}</div></div><script>${finalEmbeddedJsContent}<\/script></body></html>`;
+<body class="${escapeHtml(bodyClasses.join(' '))}">${headingsNavHtml}<div class="log-export-container"><h1>${safeHtmlTitle}</h1>${filterControlsHtml}<div id="export-log-display" class="log-display export">${logBodyContent || '<p class="empty-log-message export">ログデータがありません。</p>'}</div></div><script>${finalEmbeddedJsContent}<\/script></body></html>`;
   }
   function generateEmbeddedJsForExport(speakerDataForExport, headingsData, baseTextColor, textEdgeColor) {
-       const speakerMapString = JSON.stringify(speakerDataForExport || {});
-       const headingsDataString = JSON.stringify(headingsData || []);
-       const baseTextColorString = JSON.stringify(baseTextColor || '#333333');
-       const textEdgeColorString = JSON.stringify(textEdgeColor || '#ffffff');
+       const speakerMapString = jsonForInlineScript(speakerDataForExport || {});
+       const headingsDataString = jsonForInlineScript(headingsData || []);
+       const baseTextColorString = jsonForInlineScript(baseTextColor || '#333333');
+       const textEdgeColorString = jsonForInlineScript(textEdgeColor || '#ffffff');
 
        return `
 (function() { "use strict";
@@ -2871,3 +2888,4 @@ body.name-below-icon-active .message-container.export.align-right .bubble.export
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initializeApp); else initializeApp();
 
 })();
+
